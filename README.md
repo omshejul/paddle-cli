@@ -60,27 +60,52 @@ Paddle CLI covers operations present in the official Paddle Billing OpenAPI
 specification. Dashboard-only workflows are outside the Paddle API and therefore
 outside this CLI.
 
-## Install from the private repository
+## Install
 
-Requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
-Private-repository collaborators should first configure GitHub authentication for
-Git, then install the CLI:
+Paddle CLI is installed with [uv](https://docs.astral.sh/uv/):
 
 ```sh
-gh auth setup-git
-uv tool install "git+https://github.com/omshejul/paddle-cli.git@main"
+uv tool install paddle-api-cli
+paddle login
 ```
 
-Running the same install command again does not reinstall an unchanged tool. To
-fetch current `main` and replace the existing installation:
+### macOS with Homebrew
+
+```sh
+brew install uv
+uv tool install paddle-api-cli
+paddle login
+```
+
+### Windows with WinGet
+
+```powershell
+winget install --id astral-sh.uv --exact
+uv tool install paddle-api-cli
+paddle login
+```
+
+### Linux
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install paddle-api-cli
+paddle login
+```
+
+Upgrade or uninstall the CLI with:
+
+```sh
+uv tool upgrade paddle-api-cli
+uv tool uninstall paddle-api-cli
+```
+
+To install the latest development version directly from the public repository:
 
 ```sh
 uv tool install --force-reinstall \
   "git+https://github.com/omshejul/paddle-cli.git@main"
 ```
-
-For a reproducible installation, replace `main` with a full commit SHA. Remove
-the tool with `uv tool uninstall paddle-api-cli`.
 
 During local development:
 

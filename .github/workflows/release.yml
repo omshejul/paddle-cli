@@ -1,0 +1,36 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/paddle-api-cli/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+      - name: Verify tag matches package version
+        run: |
+          package_version=$(uv run python -c 'from paddle_cli import __version__; print(__version__)')
+          test "v${package_version}" = "${GITHUB_REF_NAME}"
+      - name: Build distributions
+        run: uv build
+      - name: Smoke test wheel
+        run: uv run --isolated --no-project --with dist/*.whl paddle --version
+      - name: Smoke test source distribution
+        run: uv run --isolated --no-project --with dist/*.tar.gz paddle --version
+      - name: Publish with PyPI trusted publishing
+        run: uv publish --trusted-publishing always
