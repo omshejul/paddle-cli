@@ -8,6 +8,7 @@ from rich.console import Console
 from paddle_cli import ui
 from paddle_cli.client import KeyInfo, ResponseResult
 from paddle_cli.credentials import CredentialError, ResolvedCredential, StoredCredential
+from paddle_cli.spec import Operation, PaddleSpec, Parameter
 from paddle_cli.ui import pagination_query, parse_typed_value, shorten
 
 
@@ -207,3 +208,169 @@ def test_pagination_query_reads_cursor() -> None:
 def test_shorten_normalizes_whitespace() -> None:
     assert shorten("one\n two", 20) == "one two"
     assert shorten("abcdefghijklmnopqrstuvwxyz", 10) == "abcdefghi…"
+
+
+def test_search_returns_operation_instead_of_converted_dictionary(monkeypatch) -> None:
+    operation = Operation("GET", "/event-types", "list-events", "List events", "", ("Events",))
+
+    class Spec:
+        def operations(self) -> list[Operation]:
+            return [operation]
+
+    monkeypatch.setattr(ui.inquirer, "text", lambda **_: Prompt("event"))
+
+    def fuzzy(**kwargs) -> Prompt:
+        choice = kwargs["choices"][0]
+        assert isinstance(choice, dict)
+        return Prompt(choice["value"])
+
+    monkeypatch.setattr(ui.inquirer, "fuzzy", fuzzy)
+
+    assert ui._search(Spec()) is operation
+
+
+def test_browse_returns_operation_instead_of_converted_dictionary(monkeypatch) -> None:
+    operation = Operation("GET", "/event-types", "list-events", "List events", "", ("Events",))
+    answers = iter(["Events", operation])
+
+    class Spec:
+        def operations(self) -> list[Operation]:
+            return [operation]
+
+    def fuzzy(**kwargs) -> Prompt:
+        if kwargs["message"] == "Operation:":
+            assert isinstance(kwargs["choices"][0], dict)
+        return Prompt(next(answers))
+
+    monkeypatch.setattr(ui.inquirer, "fuzzy", fuzzy)
+
+    assert ui._browse(Spec()) is operation
+
+
+def test_optional_parameter_selection_preserves_parameter_type(monkeypatch) -> None:
+    required = Parameter("customer_id", "path", True)
+    optional = Parameter("include", "query", False, "Related entities")
+
+    def checkbox(**kwargs) -> Prompt:
+        choice = kwargs["choices"][0]
+        assert isinstance(choice, dict)
+        return Prompt([choice["value"]])
+
+    monkeypatch.setattr(ui.inquirer, "checkbox", checkbox)
+
+    assert ui._choose_parameters([required, optional]) == [required, optional]
+
+
+class InteractiveClient:
+    key_info = KeyInfo("sandbox", True)
+    base_url = "https://sandbox-api.paddle.com"
+
+    def __init__(self) -> None:
+        self.operations: list[Operation] = []
+
+    def request(self, operation: Operation, **_) -> ResponseResult:
+        self.operations.append(operation)
+        return ResponseResult(200, "OK", {"data": []}, "req_interactive", 5)
+
+
+def interactive_spec() -> PaddleSpec:
+    return PaddleSpec(
+        {
+            "openapi": "3.1.0",
+            "paths": {
+                "/event-types": {
+                    "get": {
+                        "operationId": "list-event-types",
+                        "summary": "List event types",
+                        "tags": ["Event types"],
+                    }
+                }
+            },
+        }
+    )
+
+
+def test_interactive_search_executes_read_and_returns_to_menu(monkeypatch) -> None:
+    actions = iter(["search", "quit"])
+    client = InteractiveClient()
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+    monkeypatch.setattr(ui.inquirer, "select", lambda **_: Prompt(next(actions)))
+    monkeypatch.setattr(ui.inquirer, "text", lambda **_: Prompt("event types"))
+    monkeypatch.setattr(
+        ui.inquirer,
+        "fuzzy",
+        lambda **kwargs: Prompt(kwargs["choices"][0]["value"]),
+    )
+
+    assert ui._main_menu(interactive_spec(), client) == "quit"
+    assert [operation.path for operation in client.operations] == ["/event-types"]
+
+
+def test_interactive_browse_executes_read_and_returns_to_menu(monkeypatch) -> None:
+    actions = iter(["browse", "quit"])
+    client = InteractiveClient()
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+    monkeypatch.setattr(ui.inquirer, "select", lambda **_: Prompt(next(actions)))
+
+    def fuzzy(**kwargs) -> Prompt:
+        choice = kwargs["choices"][0]
+        value = choice["value"] if isinstance(choice, dict) else choice.value
+        return Prompt(value)
+
+    monkeypatch.setattr(ui.inquirer, "fuzzy", fuzzy)
+
+    assert ui._main_menu(interactive_spec(), client) == "quit"
+    assert [operation.path for operation in client.operations] == ["/event-types"]
+
+
+def test_interactive_raw_read_executes_and_returns_to_menu(monkeypatch) -> None:
+    menu_actions = iter(["raw", "quit"])
+    client = InteractiveClient()
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+
+    def select(**kwargs) -> Prompt:
+        if kwargs["message"] == "HTTP method:":
+            return Prompt("GET")
+        return Prompt(next(menu_actions))
+
+    def text_prompt(**kwargs) -> Prompt:
+        if kwargs["message"] == "API path:":
+            return Prompt("/event-types")
+        return Prompt("")
+
+    monkeypatch.setattr(ui.inquirer, "select", select)
+    monkeypatch.setattr(ui.inquirer, "text", text_prompt)
+
+    assert ui._main_menu(interactive_spec(), client) == "quit"
+    assert [operation.path for operation in client.operations] == ["/event-types"]
+
+
+def test_live_interactive_write_requires_exact_confirmation(monkeypatch) -> None:
+    client = InteractiveClient()
+    client.key_info = KeyInfo("live", True)
+    client.base_url = "https://api.paddle.com"
+    operation = Operation("POST", "/products", "create-product", "Create", "", ("Products",))
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+    monkeypatch.setattr(ui.inquirer, "text", lambda **_: Prompt("not LIVE"))
+
+    ui._run_operation(interactive_spec(), client, operation)
+
+    assert client.operations == []
+
+
+def test_interactive_refresh_reloads_spec_before_returning_to_menu(monkeypatch) -> None:
+    refreshes: list[bool] = []
+    menu_results = iter(["refresh", "quit"])
+    client = InteractiveClient()
+    spec = interactive_spec()
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+    monkeypatch.setattr(ui, "_authenticate", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(
+        ui,
+        "_load_spec",
+        lambda _store, refresh=False: refreshes.append(refresh) or spec,
+    )
+    monkeypatch.setattr(ui, "_main_menu", lambda *_: next(menu_results))
+
+    assert ui.run_interactive(object(), object()) == 0
+    assert refreshes == [False, True]

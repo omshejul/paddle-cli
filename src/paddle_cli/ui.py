@@ -254,7 +254,7 @@ def _browse(spec: PaddleSpec) -> Operation | None:
         return None
     return inquirer.fuzzy(
         message="Operation:",
-        choices=[Choice(operation, operation.label) for operation in grouped[tag]],
+        choices=[{"value": operation, "name": operation.label} for operation in grouped[tag]],
         mandatory=False,
     ).execute()
 
@@ -281,7 +281,7 @@ def _search(spec: PaddleSpec) -> Operation | None:
         return None
     return inquirer.fuzzy(
         message=f"Operation ({len(matches)} matches):",
-        choices=[Choice(operation, operation.label) for operation in matches],
+        choices=[{"value": operation, "name": operation.label} for operation in matches],
         mandatory=False,
     ).execute()
 
@@ -360,10 +360,11 @@ def _choose_parameters(parameters: list[Parameter]) -> list[Parameter]:
     if not optional:
         return required
     choices = [
-        Choice(
-            item,
-            f"{item.name}" + (f"  {shorten(item.description, 70)}" if item.description else ""),
-        )
+        {
+            "value": item,
+            "name": f"{item.name}"
+            + (f"  {shorten(item.description, 70)}" if item.description else ""),
+        }
         for item in optional
     ]
     selected = inquirer.checkbox(
