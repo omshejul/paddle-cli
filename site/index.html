@@ -9,6 +9,7 @@
     <meta property="og:description" content="Install Paddle CLI and call the Paddle Billing API from your terminal.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://omshejul.github.io/paddle-cli/">
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml">
     <title>Paddle CLI</title>
     <style>
       @font-face {
@@ -65,8 +66,16 @@
         border-bottom: 1px solid var(--border);
       }
 
-      .brand { color: var(--text); font-weight: 600; letter-spacing: -0.02em; }
-      .brand span { color: var(--muted); }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--text);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-mark { width: 24px; height: 24px; }
       nav { display: flex; gap: 20px; color: var(--muted); font-size: 14px; }
       main { padding-block: clamp(64px, 10vw, 112px) 80px; }
 
@@ -224,7 +233,10 @@
   <body>
     <div class="shell">
       <header>
-        <a class="brand" href="./"><span>›</span> Paddle CLI</a>
+        <a class="brand" href="./">
+          <img class="brand-mark" src="./favicon.svg" alt="">
+          Paddle CLI
+        </a>
         <nav aria-label="Primary navigation">
           <a href="#commands">Commands</a>
           <a href="https://pypi.org/project/paddle-api-cli/">PyPI</a>
