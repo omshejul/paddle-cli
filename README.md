@@ -236,6 +236,14 @@ Paddle enforces the permissions assigned to the API key. A read-only key can
 browse resources but cannot create or update them. Start with the smallest set
 of permissions needed, especially for live accounts.
 
+## AI agent skill
+
+The repository includes a compact, reusable agent skill at
+[`skills/paddle-cli/SKILL.md`](skills/paddle-cli/SKILL.md). It teaches AI agents
+how to discover operations, use noninteractive commands, protect credentials,
+and handle sandbox and live writes safely without copying the full API reference
+into their context.
+
 ## Development
 
 ```sh
