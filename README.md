@@ -8,7 +8,8 @@ operations appear after a spec refresh, without waiting for a CLI release.
 
 ## Features
 
-- One-shot API-key validation with a masked prompt
+- Explicit login with masked API-key validation and secure storage
+- Root help, local `whoami`, and networked `doctor` commands
 - Automatic sandbox/live detection from modern Paddle API keys
 - Operations grouped by Paddle resource, with fuzzy search
 - Path, query, header, and JSON request-body input
@@ -38,18 +39,30 @@ uv sync
 uv run paddle
 ```
 
-## Validate an API key
+## Get started
+
+```sh
+paddle login
+```
+
+`paddle login` prompts for a key using masked input, verifies it with Paddle's
+permissionless `GET /event-types` endpoint, and saves it in macOS Keychain,
+Windows Credential Locker, or a supported Linux Secret Service. The CLI never
+displays the secret or writes it to a plain-text configuration file.
+
+Running `paddle` without a command shows help and examples. It never prompts or
+makes a network request.
 
 ```sh
 paddle
+paddle whoami
+paddle doctor
 ```
 
-On first use, the default command prompts once and verifies the key using
-Paddle's permissionless `GET /event-types` endpoint. After successful
-validation, it saves the key in macOS Keychain, Windows Credential Locker, or a
-supported Linux Secret Service. Later runs reuse the saved key without prompting.
-The CLI never displays the secret or writes it to a plain-text configuration
-file. Modern keys select their own environment:
+- `paddle whoami` reports the local credential source without calling Paddle.
+- `paddle doctor` validates the credential and Paddle API connectivity.
+
+Modern keys select their own environment:
 
 - `pdl_sdbx_...` uses `https://sandbox-api.paddle.com`
 - `pdl_live_...` uses `https://api.paddle.com`
@@ -63,12 +76,33 @@ dashboard-only instead of guessing.
 Replace or remove the saved key explicitly:
 
 ```sh
-paddle auth login
-paddle auth logout
+paddle login
+paddle logout
 ```
 
-If the operating system has no supported credential backend, validation still
-works and the CLI reports that the key could not be saved.
+For noninteractive setup, `paddle login --key ...` is available, but the masked
+prompt is safer because command arguments may be retained in shell history.
+
+## Authentication precedence
+
+API commands resolve credentials in this order:
+
+1. `PADDLE_API_KEY` for the current process.
+2. The API key saved by `paddle login`.
+
+An environment variable is a temporary override and is never saved. If neither
+source exists, authenticated commands return an error directing the user to
+`paddle login`; they do not open a surprise prompt.
+
+## Configuration and storage
+
+```sh
+paddle config
+```
+
+This reports the secure credential backend, Keychain service and account names,
+whether a saved credential exists, and the OpenAPI cache path. It never prints
+the API key. There is no plaintext credential configuration file.
 
 ## Interactive API navigator
 
@@ -104,8 +138,12 @@ shell history, or chat messages.
 
 ```sh
 paddle interactive
-paddle auth login
-paddle auth logout
+paddle login
+paddle logout
+paddle whoami
+paddle doctor
+paddle config
+paddle help request
 paddle operations
 paddle operations --search subscription
 paddle spec update

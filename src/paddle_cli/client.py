@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 import httpx
 
+from paddle_cli import __version__
 from paddle_cli.spec import Operation
 
 BASE_URLS = {
@@ -127,7 +128,7 @@ class PaddleClient:
             "Authorization": f"Bearer {self.api_key}",
             "Accept": "application/json",
             "Paddle-Version": "1",
-            "User-Agent": "paddle-api-cli/0.1.0",
+            "User-Agent": f"paddle-api-cli/{__version__}",
         }
         for name, value in (headers or {}).items():
             if name.lower() not in {"authorization", "host", "proxy-authorization"}:

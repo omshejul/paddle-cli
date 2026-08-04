@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 
 import keyring
@@ -18,6 +19,13 @@ class CredentialError(RuntimeError):
 class StoredCredential:
     api_key: str
     environment: str
+
+
+@dataclass(frozen=True)
+class ResolvedCredential:
+    api_key: str
+    environment: str | None
+    source: str
 
 
 class CredentialStore:
@@ -49,6 +57,28 @@ class CredentialStore:
             keyring.set_password(SERVICE_NAME, ACCOUNT_NAME, payload)
         except KeyringError as exc:
             raise CredentialError("Could not save the key in system credentials.") from exc
+
+    def resolve(self, environment: str | None = None) -> ResolvedCredential | None:
+        if api_key := os.environ.get("PADDLE_API_KEY"):
+            return ResolvedCredential(api_key, environment, "environment variable")
+        saved = self.load()
+        if saved is None:
+            return None
+        return ResolvedCredential(
+            saved.api_key,
+            environment or saved.environment,
+            "system credential manager",
+        )
+
+    def backend_name(self) -> str:
+        backend_module = type(keyring.get_keyring()).__module__
+        if ".macOS" in backend_module:
+            return "macOS Keychain"
+        if ".Windows" in backend_module:
+            return "Windows Credential Locker"
+        if ".SecretService" in backend_module:
+            return "Linux Secret Service"
+        return backend_module
 
     def delete(self) -> bool:
         try:

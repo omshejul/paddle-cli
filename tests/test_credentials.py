@@ -6,7 +6,12 @@ import pytest
 from keyring.errors import KeyringError
 
 from paddle_cli import credentials
-from paddle_cli.credentials import CredentialError, CredentialStore, StoredCredential
+from paddle_cli.credentials import (
+    CredentialError,
+    CredentialStore,
+    ResolvedCredential,
+    StoredCredential,
+)
 
 
 def test_system_store_round_trip(monkeypatch) -> None:
@@ -67,3 +72,30 @@ def test_delete_removes_an_unreadable_saved_value(monkeypatch) -> None:
 
     assert CredentialStore().delete() is True
     assert values == {}
+
+
+def test_environment_key_overrides_saved_key(monkeypatch) -> None:
+    monkeypatch.setenv("PADDLE_API_KEY", "pdl_live_apikey_environment")
+    monkeypatch.setattr(
+        credentials.keyring,
+        "get_password",
+        lambda *_: (_ for _ in ()).throw(AssertionError("keychain should not be read")),
+    )
+
+    assert CredentialStore().resolve() == ResolvedCredential(
+        "pdl_live_apikey_environment",
+        None,
+        "environment variable",
+    )
+
+
+def test_saved_key_is_used_when_environment_key_is_absent(monkeypatch) -> None:
+    monkeypatch.delenv("PADDLE_API_KEY", raising=False)
+    payload = json.dumps({"api_key": "pdl_sdbx_apikey_saved", "environment": "sandbox"})
+    monkeypatch.setattr(credentials.keyring, "get_password", lambda *_: payload)
+
+    assert CredentialStore().resolve() == ResolvedCredential(
+        "pdl_sdbx_apikey_saved",
+        "sandbox",
+        "system credential manager",
+    )

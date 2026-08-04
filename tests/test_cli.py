@@ -1,45 +1,57 @@
 from __future__ import annotations
 
+import pytest
+
 from paddle_cli import cli
 from paddle_cli.client import KeyInfo, ResponseResult
-from paddle_cli.credentials import StoredCredential
+from paddle_cli.credentials import ResolvedCredential
 
 
-def test_default_command_runs_one_shot_key_check(monkeypatch) -> None:
-    monkeypatch.setattr(cli, "run_key_check", lambda _: 7)
+def test_default_command_shows_help_without_authentication(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         cli,
-        "run_interactive",
-        lambda *_: (_ for _ in ()).throw(AssertionError("navigator should not start")),
+        "run_login",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("login should not start")),
     )
 
-    assert cli.main([]) == 7
+    assert cli.main([]) == 0
+    output = capsys.readouterr().out
+    assert "paddle login" in output
+    assert "paddle interactive" in output
 
 
 def test_interactive_subcommand_keeps_api_navigator(monkeypatch) -> None:
-    monkeypatch.setattr(cli, "run_key_check", lambda _: 7)
-    monkeypatch.setattr(cli, "run_interactive", lambda *_: 3)
+    monkeypatch.setattr(cli, "run_interactive", lambda *_args, **_kwargs: 3)
 
     assert cli.main(["interactive"]) == 3
 
 
-def test_auth_login_forces_a_new_key_prompt(monkeypatch) -> None:
-    seen: dict[str, bool] = {}
+def test_login_is_an_explicit_top_level_command(monkeypatch) -> None:
+    seen: dict[str, str | None] = {}
 
-    def login(_, *, force_prompt: bool = False) -> int:
-        seen["force_prompt"] = force_prompt
+    def login(_, *, api_key: str | None = None, environment: str | None = None) -> int:
+        seen["api_key"] = api_key
+        seen["environment"] = environment
         return 4
 
-    monkeypatch.setattr(cli, "run_key_check", login)
+    monkeypatch.setattr(cli, "run_login", login)
 
-    assert cli.main(["auth", "login"]) == 4
-    assert seen == {"force_prompt": True}
+    assert cli.main(["login", "--key", "pdl_sdbx_apikey_test"]) == 4
+    assert seen == {"api_key": "pdl_sdbx_apikey_test", "environment": None}
+
+
+def test_old_nested_auth_command_is_not_exposed() -> None:
+    with pytest.raises(SystemExit, match="2"):
+        cli.build_parser().parse_args(["auth", "login"])
 
 
 def test_logout_removes_saved_key() -> None:
     class Store:
         def delete(self) -> bool:
             return True
+
+        def backend_name(self) -> str:
+            return "Test Keychain"
 
     assert cli._logout(Store()) == 0
 
@@ -48,8 +60,8 @@ def test_direct_request_reuses_saved_key(monkeypatch) -> None:
     api_key = "pdl_sdbx_apikey_saved"
 
     class Store:
-        def load(self) -> StoredCredential:
-            return StoredCredential(api_key, "sandbox")
+        def resolve(self, environment: str | None = None) -> ResolvedCredential:
+            return ResolvedCredential(api_key, environment or "sandbox", "test")
 
     class FakeClient:
         key_info = KeyInfo("sandbox", True)

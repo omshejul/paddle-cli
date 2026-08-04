@@ -1,11 +1,13 @@
 # CLI implementation review
 
-Reviewed on 2026-08-04. All repositories were active on the review date. The
+Reviewed on 2026-08-05. All repositories were active on the review date. The
 comparison focuses on structure, authentication UX, testing, and distribution
 rather than feature count.
 
 | CLI | Implementation | Command and release structure | Relevant lesson |
 | --- | --- | --- | --- |
+| [Upstash CLI](https://github.com/upstash/cli) | TypeScript with Commander | Thin entrypoint, explicit login/logout, flag and environment overrides, JSON output, resource commands, and direct API client | Keep authentication resolution predictable and make root help useful to humans and agents |
+| [Resend CLI](https://github.com/resend/resend-cli) | TypeScript with Commander | Explicit login/logout, secure credential backends, local `whoami`, networked `doctor`, profiles, JSON output, Homebrew, npm, and standalone binaries | Prompt only during login; separate local identity from live connectivity checks |
 | [GitHub CLI](https://github.com/cli/cli) | Go with Cobra | Small `cmd/gh` entrypoint, package-oriented commands, acceptance tests, GoReleaser, immutable multi-platform releases, package managers, and provenance attestations | Keep commands independently testable and make release artifacts verifiable |
 | [Stripe CLI](https://github.com/stripe/stripe-cli) | Go with Cobra | Dedicated root command, API operations informed by an OpenAPI spec, install tests, GoReleaser, Homebrew, npm wrapper, and precompiled binaries | A spec-driven API client still needs deliberate auth and release UX |
 | [Supabase CLI](https://github.com/supabase/cli) | TypeScript/Bun with a Go sidecar | pnpm/Nx monorepo, platform-specific packages, core and end-to-end tests, release smoke tests, npm, Homebrew tap, Scoop, and Linux packages | Test the packaged command, not only its internal functions |
@@ -19,15 +21,19 @@ rather than feature count.
 
 ## Patterns applied to Paddle CLI
 
-- `paddle` performs one obvious action, validates one key, reports safe identity
-  information, and exits.
+- `paddle` with no subcommand shows help without prompting or making a network
+  request.
+- `paddle login` is the only authentication prompt. It validates before saving
+  the secret in the operating system's secure credential manager.
+- `paddle whoami` reports local credential metadata without a network call, while
+  `paddle doctor` explicitly verifies Paddle connectivity.
+- Credential resolution is predictable: `PADDLE_API_KEY` overrides the saved
+  credential for one process and is never persisted.
+- Authenticated commands fail with an actionable login instruction when no
+  credential exists instead of opening an unexpected prompt.
 - The full API navigator remains available as `paddle interactive`.
-- A successful check exits with `0`, a rejected key exits with `1`, and user
-  cancellation exits with `130`.
-- The API secret is masked at input, never printed, and persisted only through
-  the operating system's secure credential manager after successful validation.
-- The check uses Paddle's permissionless `GET /event-types` endpoint and does not
-  download the OpenAPI specification.
+- A successful command exits with `0`, a rejected credential exits with `1`, and
+  user cancellation exits with `130`.
 - Output distinguishes verified facts from dashboard-only metadata.
 - HTTP behavior is isolated from terminal rendering and tested with mock
   transports.

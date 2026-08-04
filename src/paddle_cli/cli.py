@@ -1,25 +1,32 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from paddle_cli import __version__
 from paddle_cli.client import PaddleClient, PaddleCliError
-from paddle_cli.credentials import CredentialError, CredentialStore
-from paddle_cli.spec import Operation, SpecError, SpecStore
+from paddle_cli.credentials import (
+    ACCOUNT_NAME,
+    SERVICE_NAME,
+    CredentialError,
+    CredentialStore,
+)
+from paddle_cli.spec import Operation, SpecError, SpecStore, default_cache_path
 from paddle_cli.ui import (
     confirm_execution,
     operations_table,
     render_response,
+    run_doctor,
     run_interactive,
-    run_key_check,
+    run_login,
+    run_whoami,
 )
 
 console = Console()
@@ -28,17 +35,39 @@ console = Console()
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paddle",
-        description="Validate a Paddle API key or explore the Paddle Billing API.",
+        description="Command line access to the Paddle Billing API.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""examples:
+  paddle login
+  paddle whoami
+  paddle interactive
+  paddle operations --search subscription
+  paddle request GET /products
+
+Run 'paddle help <command>' for command-specific help.""",
     )
     parser.add_argument("--version", action="version", version=f"Paddle CLI {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("interactive", help="Open the interactive API navigator")
+    login = subparsers.add_parser("login", help="Validate and securely save an API key")
+    login.add_argument("--key", help="API key to save (prefer the masked interactive prompt)")
+    login.add_argument("--environment", choices=["sandbox", "live"])
 
-    auth = subparsers.add_parser("auth", help="Manage the saved Paddle API key")
-    auth_subparsers = auth.add_subparsers(dest="auth_command", required=True)
-    auth_subparsers.add_parser("login", help="Validate and save a new API key")
-    auth_subparsers.add_parser("logout", help="Remove the saved API key")
+    subparsers.add_parser("logout", help="Remove the saved API key")
+
+    whoami = subparsers.add_parser("whoami", help="Show local authentication status")
+    whoami.add_argument("--environment", choices=["sandbox", "live"])
+
+    doctor = subparsers.add_parser("doctor", help="Validate API connectivity and credentials")
+    doctor.add_argument("--environment", choices=["sandbox", "live"])
+
+    interactive = subparsers.add_parser("interactive", help="Open the interactive API navigator")
+    interactive.add_argument("--environment", choices=["sandbox", "live"])
+
+    subparsers.add_parser("config", help="Show credential storage and cache locations")
+
+    help_parser = subparsers.add_parser("help", help="Show help for a command")
+    help_parser.add_argument("topic", nargs="?", help="Command name")
 
     operations = subparsers.add_parser("operations", help="List operations in Paddle's API spec")
     operations.add_argument("--search", help="Filter by resource, operation, method, or path")
@@ -65,13 +94,34 @@ def main(argv: list[str] | None = None) -> int:
     credential_store = CredentialStore()
     try:
         if args.command is None:
-            return run_key_check(credential_store)
-        if args.command == "interactive":
-            return run_interactive(spec_store, credential_store)
-        if args.command == "auth" and args.auth_command == "login":
-            return run_key_check(credential_store, force_prompt=True)
-        if args.command == "auth" and args.auth_command == "logout":
+            parser.print_help()
+            return 0
+        if args.command == "help":
+            return _show_help(parser, args.topic)
+        if args.command == "login":
+            if args.key is None and not sys.stdin.isatty():
+                raise PaddleCliError(
+                    "Interactive input is unavailable. Pass the API key with --key."
+                )
+            return run_login(
+                credential_store,
+                api_key=args.key,
+                environment=args.environment,
+            )
+        if args.command == "logout":
             return _logout(credential_store)
+        if args.command == "whoami":
+            return run_whoami(credential_store, environment=args.environment)
+        if args.command == "doctor":
+            return run_doctor(credential_store, environment=args.environment)
+        if args.command == "interactive":
+            return run_interactive(
+                spec_store,
+                credential_store,
+                environment=args.environment,
+            )
+        if args.command == "config":
+            return _show_config(credential_store)
         if args.command == "operations":
             return _list_operations(spec_store, args.search, refresh=args.refresh)
         if args.command == "request":
@@ -105,22 +155,12 @@ def _list_operations(store: SpecStore, search: str | None, *, refresh: bool) -> 
 
 
 def _request(args: argparse.Namespace, credential_store: CredentialStore) -> int:
-    api_key = os.environ.get("PADDLE_API_KEY")
-    environment = args.environment
-    if not api_key:
-        saved = credential_store.load()
-        if saved is not None:
-            api_key = saved.api_key
-            environment = environment or saved.environment
-        else:
-            if not sys.stdin.isatty():
-                raise PaddleCliError(
-                    "Run 'paddle auth login' or set PADDLE_API_KEY for a noninteractive request."
-                )
-            api_key = getpass.getpass("Paddle API key: ")
+    resolved = credential_store.resolve(args.environment)
+    if resolved is None:
+        raise PaddleCliError("Authentication required. Run 'paddle login' or set PADDLE_API_KEY.")
     query = _json_object(args.query, "query")
     body = _body(args.body)
-    client = PaddleClient(api_key, environment=environment)
+    client = PaddleClient(resolved.api_key, environment=resolved.environment)
     operation = Operation(
         method=args.method,
         path=args.path,
@@ -141,9 +181,38 @@ def _request(args: argparse.Namespace, credential_store: CredentialStore) -> int
 
 def _logout(store: CredentialStore) -> int:
     if store.delete():
-        console.print("Removed the saved Paddle API key from system credentials.")
+        console.print(f"Removed the saved Paddle API key from {store.backend_name()}.")
     else:
-        console.print("No Paddle API key is saved.")
+        console.print("No saved Paddle API key found. Already logged out.")
+    return 0
+
+
+def _show_config(store: CredentialStore) -> int:
+    details = Table.grid(padding=(0, 2))
+    details.add_column(style="bold")
+    details.add_column()
+    details.add_row("Credential storage", store.backend_name())
+    details.add_row("Keychain service", SERVICE_NAME)
+    details.add_row("Keychain account", ACCOUNT_NAME)
+    details.add_row("Saved credential", "Yes" if store.load() is not None else "No")
+    details.add_row("OpenAPI cache", str(default_cache_path()))
+    console.print(Panel.fit(details, title="Paddle CLI configuration", border_style="cyan"))
+    return 0
+
+
+def _show_help(parser: argparse.ArgumentParser, topic: str | None) -> int:
+    if topic is None:
+        parser.print_help()
+        return 0
+    subparsers = next(
+        (action for action in parser._actions if isinstance(action, argparse._SubParsersAction)),
+        None,
+    )
+    command_parser = subparsers.choices.get(topic) if subparsers else None
+    if command_parser is None:
+        console.print(f"[red]Unknown command:[/red] {topic}", file=sys.stderr)
+        return 2
+    command_parser.print_help()
     return 0
 
 
