@@ -8,17 +8,37 @@ operations appear after a spec refresh, without waiting for a CLI release.
 
 ## Features
 
-- Explicit login with masked API-key validation and secure storage
-- Root help, local `whoami`, and networked `doctor` commands
-- Automatic sandbox/live detection from modern Paddle API keys
-- Operations grouped by Paddle resource, with fuzzy search
-- Path, query, header, and JSON request-body input
-- Request preview before execution
-- Extra confirmation for writes, with an explicit `LIVE` gate in production
-- Pretty JSON responses and Paddle request IDs
-- Raw-request mode for endpoints not yet described by the specification
-- Noninteractive request mode for scripts
-- Validated API keys stored in the operating system's secure credential manager
+- **Use the complete Paddle API from one command.** Browse and call every operation
+  in Paddle's official OpenAPI specification, then refresh the specification when
+  Paddle adds new endpoints.
+- **Works for both people and automation.** Explore resources interactively, run
+  direct commands in a terminal, or use the same CLI in scripts and CI jobs.
+- **Safer sandbox and live workflows.** The CLI detects the environment, previews
+  requests, confirms writes, and requires an explicit `LIVE` confirmation for
+  production changes.
+- **Your API key stays on your machine.** Keys are validated before saving and
+  stored in macOS Keychain, Windows Credential Locker, or Linux Secret Service.
+- **Deterministic and inspectable.** A command always maps to a visible HTTP
+  method, path, query, and body, with Paddle's response and request ID shown back
+  to you.
+- **Useful even before the CLI is updated.** Raw requests let you call a new API
+  endpoint immediately, while specification refresh makes it browsable without a
+  package release.
+
+### Why use the CLI instead of an MCP server?
+
+- **No MCP server setup or model required.** It works directly from any terminal,
+  editor, CI system, or agent that can run shell commands.
+- **Predictable execution.** The CLI runs exactly the command you provide instead
+  of asking a model to choose a tool and construct the request for you.
+- **Smaller credential boundary.** Your Paddle key remains in your operating
+  system's credential manager instead of being copied into MCP server
+  configuration.
+- **Better for repeatable automation.** Commands can be reviewed, versioned, and
+  reused in scripts with stable arguments and meaningful exit codes.
+- **MCP remains useful for conversational workflows.** Use MCP when you want an AI
+  assistant to discover and combine Paddle actions. Use the CLI when you want
+  direct control, portability, and reproducibility.
 
 Paddle CLI covers operations present in the official Paddle Billing OpenAPI
 specification. Dashboard-only workflows are outside the Paddle API and therefore
