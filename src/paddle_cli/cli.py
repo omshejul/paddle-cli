@@ -74,7 +74,7 @@ Run 'paddle help <command>' for command-specific help.""",
 
     skill = subparsers.add_parser("skill", help="Manage the bundled AI agent skill")
     skill_subparsers = skill.add_subparsers(dest="skill_command", required=True)
-    skill_subparsers.add_parser("install", help="Install the Paddle skill for selected agents")
+    skill_subparsers.add_parser("install", help="Install one shared Paddle skill")
 
     subparsers.add_parser("logout", help="Remove the saved API key")
 

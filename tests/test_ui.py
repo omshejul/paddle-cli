@@ -6,7 +6,7 @@ import pytest
 from rich.console import Console
 
 from paddle_cli import ui
-from paddle_cli.agent_skill import SkillInstallation, SkillTarget
+from paddle_cli.agent_skill import SHARED_AGENTS, SkillInstallation
 from paddle_cli.client import KeyInfo, ResponseResult
 from paddle_cli.credentials import CredentialError, ResolvedCredential, StoredCredential
 from paddle_cli.spec import Operation, PaddleSpec, Parameter
@@ -79,38 +79,53 @@ def test_login_validates_once_and_saves(monkeypatch) -> None:
     assert api_key not in rendered
 
 
-def test_skill_install_prompts_with_detected_agents_selected(monkeypatch, tmp_path) -> None:
+def test_skill_install_uses_shared_location_without_an_agent_picker(monkeypatch, tmp_path) -> None:
     output = StringIO()
-    targets = [
-        SkillTarget("Codex", tmp_path / ".codex" / "skills" / "paddle-cli", True),
-        SkillTarget("Cursor", tmp_path / ".cursor" / "skills" / "paddle-cli", False),
-        SkillTarget(
-            "Universal Agents",
-            tmp_path / ".config" / "agents" / "skills" / "paddle-cli",
-            False,
-        ),
-    ]
-    selected_agents: list[str] = []
-
-    def checkbox(**kwargs) -> Prompt:
-        choices = kwargs["choices"]
-        assert choices[0].enabled is True
-        assert choices[1].enabled is False
-        assert "detected" in choices[0].name
-        return Prompt(["Codex", "Cursor"])
-
-    def install(*, agents) -> list[SkillInstallation]:
-        selected_agents.extend(agents)
-        return [SkillInstallation("Codex", targets[0].path)]
+    shared = tmp_path / ".agents" / "skills" / "paddle-cli"
 
     monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
-    monkeypatch.setattr(ui, "agent_skill_targets", lambda: targets)
-    monkeypatch.setattr(ui.inquirer, "checkbox", checkbox)
-    monkeypatch.setattr(ui, "ensure_agent_skills", install)
+    monkeypatch.setattr(
+        ui,
+        "ensure_agent_skills",
+        lambda: [SkillInstallation(SHARED_AGENTS, shared)],
+    )
+    monkeypatch.setattr(
+        ui.inquirer,
+        "checkbox",
+        lambda **_: (_ for _ in ()).throw(AssertionError("agent picker should not open")),
+        raising=False,
+    )
 
     assert ui.run_skill_install() == 0
-    assert selected_agents == ["Codex", "Cursor"]
-    assert "Installed the Paddle skill for Codex" in output.getvalue()
+    rendered = output.getvalue()
+    assert "Paddle skill setup updated" in rendered
+    assert SHARED_AGENTS in rendered
+    assert ".agents/skills/paddle-cli" in rendered.replace("\n", "")
+
+
+def test_skill_install_offer_requires_enter_after_typing_yes(monkeypatch) -> None:
+    installed: list[bool] = []
+
+    def text_prompt(**kwargs) -> Prompt:
+        assert kwargs["instruction"] == "(Y/n)"
+        assert kwargs["mandatory"] is False
+        assert kwargs["validate"]("") is True
+        assert kwargs["validate"]("Y") is True
+        assert kwargs["validate"]("maybe") is False
+        return Prompt("Y")
+
+    monkeypatch.setattr(ui.inquirer, "text", text_prompt)
+    monkeypatch.setattr(ui, "_install_agent_skill", lambda: installed.append(True))
+
+    ui._offer_agent_skill_install()
+
+    assert installed == [True]
+
+
+def test_skill_install_offer_accepts_enter_as_yes_and_no_as_no(monkeypatch) -> None:
+    assert ui._yes_no_answer("", default=True) is True
+    assert ui._yes_no_answer("n", default=True) is False
+    assert ui._yes_no_answer("NO", default=True) is False
 
 
 def test_whoami_reads_saved_key_without_network_or_prompt(monkeypatch) -> None:

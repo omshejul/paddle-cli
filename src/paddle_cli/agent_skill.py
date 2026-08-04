@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Collection, Mapping
+import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -12,6 +13,7 @@ from paddle_cli import __version__
 SKILL_NAME = "paddle-cli"
 MANAGED_FILE = ".paddle-cli-managed.json"
 BUNDLED_FILES = ("SKILL.md", "agents/openai.yaml")
+SHARED_AGENTS = "Codex, Cursor, Gemini CLI, GitHub Copilot, and OpenCode"
 
 
 @dataclass(frozen=True)
@@ -20,32 +22,13 @@ class SkillInstallation:
     path: Path
 
 
-@dataclass(frozen=True)
-class SkillTarget:
-    agent: str
-    path: Path
-    detected: bool
-
-
-def agent_skill_targets(
-    *,
-    home: Path | None = None,
-    environ: Mapping[str, str] | None = None,
-) -> list[SkillTarget]:
-    """Return every supported agent target and whether it is present locally."""
-    resolved_home = home or Path.home()
-    resolved_environ = environ if environ is not None else os.environ
-    return _agent_targets(resolved_home, resolved_environ)
-
-
 def ensure_agent_skills(
     *,
-    agents: Collection[str] | None = None,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
     resource_root: Path | None = None,
 ) -> list[SkillInstallation]:
-    """Install the bundled skill for selected or detected agents without replacing edits."""
+    """Install one shared skill, with a Claude Code link when Claude is present."""
     resolved_home = home or Path.home()
     resolved_environ = environ if environ is not None else os.environ
     resolved_resources = resource_root or Path(__file__).with_name("bundled_skill")
@@ -54,46 +37,79 @@ def ensure_agent_skills(
     except OSError:
         return []
 
-    targets = _agent_targets(resolved_home, resolved_environ)
-    if agents is None:
-        selected_targets = [target for target in targets if target.detected]
-        if not selected_targets:
-            selected_targets = [target for target in targets if target.agent == "Universal Agents"]
-    else:
-        selected_agents = set(agents)
-        selected_targets = [target for target in targets if target.agent in selected_agents]
-
     installed: list[SkillInstallation] = []
-    for selected in selected_targets:
+    shared = resolved_home / ".agents" / "skills" / SKILL_NAME
+    try:
+        if _install_skill(shared, contents):
+            installed.append(SkillInstallation(SHARED_AGENTS, shared))
+    except (OSError, ValueError):
+        return []
+
+    claude_root = resolved_home / ".claude"
+    if claude_root.exists():
+        claude_skill = claude_root / "skills" / SKILL_NAME
         try:
-            changed = _install_skill(selected.path, contents)
+            if _ensure_claude_skill(claude_skill, shared, contents):
+                installed.append(SkillInstallation("Claude Code", claude_skill))
         except (OSError, ValueError):
+            pass
+
+    for legacy in _legacy_skill_paths(resolved_home, resolved_environ):
+        if legacy == shared:
             continue
-        if changed:
-            installed.append(SkillInstallation(selected.agent, selected.path))
+        try:
+            _remove_pristine_managed_skill(legacy)
+        except OSError:
+            continue
     return installed
 
 
-def _agent_targets(home: Path, environ: Mapping[str, str]) -> list[SkillTarget]:
+def _legacy_skill_paths(home: Path, environ: Mapping[str, str]) -> tuple[Path, ...]:
     codex_home = Path(environ.get("CODEX_HOME", home / ".codex")).expanduser()
-    candidates = (
-        ("Codex", codex_home, bool(environ.get("CODEX_HOME")) or codex_home.exists()),
-        ("Claude Code", home / ".claude", (home / ".claude").exists()),
-        ("Cursor", home / ".cursor", (home / ".cursor").exists()),
-        ("Gemini CLI", home / ".gemini", (home / ".gemini").exists()),
-        ("GitHub Copilot", home / ".copilot", (home / ".copilot").exists()),
-        ("OpenCode", home / ".config" / "opencode", (home / ".config" / "opencode").exists()),
-        ("Agent Skills", home / ".agents", (home / ".agents").exists()),
-        (
-            "Universal Agents",
-            home / ".config" / "agents",
-            (home / ".config" / "agents").exists(),
-        ),
+    roots = (
+        codex_home,
+        home / ".cursor",
+        home / ".gemini",
+        home / ".copilot",
+        home / ".config" / "opencode",
+        home / ".config" / "agents",
     )
-    return [
-        SkillTarget(agent, root / "skills" / SKILL_NAME, detected)
-        for agent, root, detected in candidates
-    ]
+    return tuple(root / "skills" / SKILL_NAME for root in roots)
+
+
+def _ensure_claude_skill(
+    target: Path,
+    shared: Path,
+    contents: Mapping[str, str],
+) -> bool:
+    if target.is_symlink():
+        return False
+    if target.exists() and not _remove_pristine_managed_skill(target):
+        return False
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(shared, target_is_directory=True)
+    except OSError:
+        return _install_skill(target, contents)
+    return True
+
+
+def _remove_pristine_managed_skill(target: Path) -> bool:
+    if target.is_symlink() or not target.is_dir():
+        return False
+    managed_hash = _managed_hash(target)
+    if managed_hash is None or _installed_hash(target) != managed_hash:
+        return False
+    files = {
+        item.relative_to(target).as_posix()
+        for item in target.rglob("*")
+        if item.is_file()
+    }
+    if files != {*BUNDLED_FILES, MANAGED_FILE}:
+        return False
+    shutil.rmtree(target)
+    return True
 
 
 def _read_bundle(resource_root: Path) -> dict[str, str]:

@@ -215,10 +215,13 @@ how to discover operations, use noninteractive commands, protect credentials,
 and handle sandbox and live writes safely without copying the full API reference
 into their context.
 
-After an interactive login, Paddle CLI offers to install the skill and lets you
-select Codex, Claude Code, Cursor, Gemini CLI, GitHub Copilot, OpenCode, or a
-compatible agent-skills directory. Run `paddle skill install` to change the
-selection later. Updates never overwrite a skill that you edited.
+After an interactive login, Paddle CLI offers to install one shared copy at
+`~/.agents/skills/paddle-cli`. Codex, Cursor, Gemini CLI, GitHub Copilot, and
+OpenCode read that standard location directly. If Claude Code is present, Paddle
+CLI links its `~/.claude/skills/paddle-cli` entry to the same copy. On systems
+that cannot create the link, it keeps a second synchronized copy instead. Run
+`paddle skill install` to update the setup. Updates never overwrite a skill that
+you edited.
 
 ## Development
 
