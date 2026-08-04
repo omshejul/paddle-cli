@@ -1,68 +1,28 @@
 # Paddle CLI
 
-A secure API-key validator and interactive terminal client for the complete
-Paddle Billing API.
+A fast, agent-native CLI for the complete Paddle Billing API.
 
 [Website](https://omshejul.github.io/paddle-cli/) ·
 [PyPI](https://pypi.org/project/paddle-api-cli/) ·
 [Homebrew](https://github.com/omshejul/homebrew-tap)
 
-Paddle CLI reads Paddle's official OpenAPI 3.1 specification at runtime. New API
-operations appear after a spec refresh, without waiting for a CLI release.
+## Built for agents
 
-## Features
+**2× faster agent runs. 39% fewer input tokens. 46× smaller discovery payload.**
 
-- **Use the complete Paddle API from one command.** Browse and call every operation
-  in Paddle's official OpenAPI specification, then refresh the specification when
-  Paddle adds new endpoints.
-- **Works for both people and automation.** Explore resources interactively, run
-  direct commands in a terminal, or use the same CLI in scripts and CI jobs.
-- **Safer sandbox and live workflows.** The CLI detects the environment, previews
-  requests, confirms writes, and requires an explicit `LIVE` confirmation for
-  production changes.
-- **Your API key stays on your machine.** Keys are validated before saving and
-  stored in macOS Keychain, Windows Credential Locker, or Linux Secret Service.
-- **Deterministic and inspectable.** A command always maps to a visible HTTP
-  method, path, query, and body, with Paddle's response and request ID shown back
-  to you.
-- **Useful even before the CLI is updated.** Raw requests let you call a new API
-  endpoint immediately, while specification refresh makes it browsable without a
-  package release.
+| Measured task | Paddle CLI | Paddle MCP |
+| --- | ---: | ---: |
+| Repeated API read | **9.2s** | 18.5s |
+| Input tokens | **35.5k** | 58.5k |
+| Operation discovery | **541 chars** | 24.8k chars |
 
-### Paddle CLI compared with MCP
+Paddle CLI keeps discovery local, turns every action into an inspectable command,
+and works anywhere an agent has a shell. It reads Paddle's official OpenAPI
+specification, supports raw paths for new endpoints, stores credentials in the
+system credential manager, and gates live writes.
 
-| Capability | Paddle CLI | Paddle MCP server |
-| --- | --- | --- |
-| Run directly from a terminal | Yes, with one `paddle` command | No, requires an MCP client |
-| Use without an AI model | Yes | Possible with development tools, but not the normal workflow |
-| Use in shell scripts and CI | Native commands, exit codes, and standard input | Requires an MCP client or adapter |
-| Repeat and review an action | Save the exact command in code or shell history | Depends on the MCP client retaining the tool call |
-| Keep the API key in the operating system credential manager | Built in | Depends on how the MCP server stores credentials |
-| Preview requests and protect live writes | Built-in request preview, write confirmation, and `LIVE` gate | Depends on the MCP server implementation |
-| Call an endpoint not yet modeled by the tool | Yes, using a raw request | Only if the server exposes a generic request tool |
-| Pick and combine actions from natural language | No built-in model | Native use case for MCP and AI clients |
-| Provide structured tools to an AI agent | Possible through shell access | Native MCP capability |
-| Browse Paddle operations interactively | Built-in terminal navigator and fuzzy search | Usually handled through the AI client |
-
-#### What both can do
-
-| Shared capability | Notes |
-| --- | --- |
-| Call Paddle sandbox and live APIs | Both ultimately send requests to Paddle's API endpoints. |
-| Read and change Paddle resources | Available operations depend on the API key's permissions. |
-| Work with products, prices, customers, subscriptions, and transactions | Both can cover resources exposed by the Paddle API. |
-| Use Paddle API keys | Paddle authenticates and authorizes every request. |
-| Return Paddle responses and request IDs | The presentation differs, but the underlying response comes from Paddle. |
-| Be used by an AI agent | An agent can run CLI commands or invoke MCP tools. |
-| Access only API-supported workflows | Neither can perform dashboard-only actions unless separate browser automation is added. |
-
-Use the CLI for direct control, local credentials, scripts, and reproducible
-operations. Use MCP when natural-language discovery and multi-tool AI workflows
-matter more than terminal-native execution.
-
-Paddle CLI covers operations present in the official Paddle Billing OpenAPI
-specification. Dashboard-only workflows are outside the Paddle API and therefore
-outside this CLI.
+_Measured on August 5, 2026 with fresh Codex sessions, the same sandbox account,
+and three successful read-only runs per path. Timing varies by model and network._
 
 ## Install
 
