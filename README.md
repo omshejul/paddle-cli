@@ -72,8 +72,7 @@ paddle login
 ### macOS with Homebrew
 
 ```sh
-brew install uv
-uv tool install paddle-api-cli
+brew install omshejul/tap/paddle-api-cli
 paddle login
 ```
 
@@ -93,11 +92,18 @@ uv tool install paddle-api-cli
 paddle login
 ```
 
-Upgrade or uninstall the CLI with:
+Upgrade or uninstall a uv installation with:
 
 ```sh
 uv tool upgrade paddle-api-cli
 uv tool uninstall paddle-api-cli
+```
+
+For a Homebrew installation, use:
+
+```sh
+brew upgrade paddle-api-cli
+brew uninstall paddle-api-cli
 ```
 
 To install the latest development version directly from the public repository:
