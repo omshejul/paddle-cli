@@ -14,7 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from paddle_cli.agent_skill import agent_skill_targets, ensure_agent_skills
+from paddle_cli.agent_skill import ensure_agent_skills
 from paddle_cli.client import PaddleClient, PaddleCliError, inspect_api_key
 from paddle_cli.credentials import CredentialError, CredentialStore
 from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecStore
@@ -73,7 +73,7 @@ def run_login(
 
 
 def run_skill_install() -> int:
-    """Prompt for agent targets and install the bundled Paddle skill."""
+    """Install the shared Paddle skill for compatible agents."""
     try:
         _install_agent_skill()
         return 0
@@ -115,32 +115,13 @@ def _yes_no_answer(answer: str, *, default: bool) -> bool:
 
 
 def _install_agent_skill() -> None:
-    targets = agent_skill_targets()
-    has_detected_agent = any(target.detected for target in targets)
-    choices = [
-        Choice(
-            value=target.agent,
-            name=f"{target.agent}{' (detected)' if target.detected else ''}",
-            enabled=target.detected
-            or (target.agent == "Universal Agents" and not has_detected_agent),
-        )
-        for target in targets
-    ]
-    selected = inquirer.checkbox(
-        message="Which agents should use the Paddle skill?",
-        choices=choices,
-        instruction="Space to select, Enter to install",
-    ).execute()
-    if not selected:
-        console.print("[dim]No agents selected. Nothing was installed.[/dim]")
-        return
-
-    installed = ensure_agent_skills(agents=selected)
+    installed = ensure_agent_skills()
     if installed:
-        names = ", ".join(item.agent for item in installed)
-        console.print(f"[green]Installed the Paddle skill for {names}.[/green]")
+        console.print("[green]Paddle skill setup updated.[/green]")
+        for item in installed:
+            console.print(f"  [bold]{item.agent}[/bold]: {item.path}")
     else:
-        console.print("[green]The Paddle skill is already up to date for those agents.[/green]")
+        console.print("[green]The shared Paddle skill is already up to date.[/green]")
 
 
 def run_whoami(store: CredentialStore, *, environment: str | None = None) -> int:
