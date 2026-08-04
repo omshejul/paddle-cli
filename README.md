@@ -122,6 +122,7 @@ Replace or remove the saved key explicitly:
 
 ```sh
 paddle login
+paddle skill install
 paddle logout
 ```
 
@@ -214,10 +215,10 @@ how to discover operations, use noninteractive commands, protect credentials,
 and handle sandbox and live writes safely without copying the full API reference
 into their context.
 
-The first `paddle` launch installs the bundled skill for detected Codex, Claude
-Code, Cursor, Gemini CLI, GitHub Copilot, OpenCode, and compatible agent-skills
-directories. Later CLI upgrades update the managed copy, but never overwrite a
-skill that the user has edited.
+After an interactive login, Paddle CLI offers to install the skill and lets you
+select Codex, Claude Code, Cursor, Gemini CLI, GitHub Copilot, OpenCode, or a
+compatible agent-skills directory. Run `paddle skill install` to change the
+selection later. Updates never overwrite a skill that you edited.
 
 ## Development
 

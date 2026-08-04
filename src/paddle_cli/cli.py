@@ -12,7 +12,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from paddle_cli import __version__
-from paddle_cli.agent_skill import ensure_agent_skills
 from paddle_cli.client import PaddleClient, PaddleCliError
 from paddle_cli.credentials import (
     ACCOUNT_NAME,
@@ -28,6 +27,7 @@ from paddle_cli.ui import (
     run_doctor,
     run_interactive,
     run_login,
+    run_skill_install,
     run_whoami,
 )
 
@@ -72,6 +72,10 @@ Run 'paddle help <command>' for command-specific help.""",
         help="Override environment detection, mainly for legacy keys",
     )
 
+    skill = subparsers.add_parser("skill", help="Manage the bundled AI agent skill")
+    skill_subparsers = skill.add_subparsers(dest="skill_command", required=True)
+    skill_subparsers.add_parser("install", help="Install the Paddle skill for selected agents")
+
     subparsers.add_parser("logout", help="Remove the saved API key")
 
     whoami = subparsers.add_parser("whoami", help="Show local authentication status")
@@ -115,8 +119,6 @@ Run 'paddle help <command>' for command-specific help.""",
 
 
 def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        ensure_agent_skills()
     parser = build_parser()
     args = parser.parse_args(argv)
     spec_store = SpecStore()
@@ -141,7 +143,10 @@ def main(argv: list[str] | None = None) -> int:
                 credential_store,
                 api_key=api_key,
                 environment=args.environment,
+                prompt_for_skill=api_key is None,
             )
+        if args.command == "skill" and args.skill_command == "install":
+            return run_skill_install()
         if args.command == "logout":
             return _logout(credential_store)
         if args.command == "whoami":

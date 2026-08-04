@@ -14,6 +14,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+from paddle_cli.agent_skill import agent_skill_targets, ensure_agent_skills
 from paddle_cli.client import PaddleClient, PaddleCliError, inspect_api_key
 from paddle_cli.credentials import CredentialError, CredentialStore
 from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecStore
@@ -27,6 +28,7 @@ def run_login(
     *,
     api_key: str | None = None,
     environment: str | None = None,
+    prompt_for_skill: bool = False,
 ) -> int:
     console.print(
         Panel.fit(
@@ -52,6 +54,8 @@ def run_login(
 
         store.save(api_key, client.key_info.environment)
         _render_key_details(client, response)
+        if prompt_for_skill:
+            _offer_agent_skill_install()
         console.print(
             "[green]API key saved in your system credential manager.[/green]\n\n"
             "Next steps:\n"
@@ -66,6 +70,63 @@ def run_login(
     except (CredentialError, PaddleCliError) as exc:
         error_console.print(f"[red]Login failed:[/red] {exc}")
         return 1
+
+
+def run_skill_install() -> int:
+    """Prompt for agent targets and install the bundled Paddle skill."""
+    try:
+        _install_agent_skill()
+        return 0
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[dim]Skill installation canceled.[/dim]")
+        return 130
+
+
+def _offer_agent_skill_install() -> None:
+    try:
+        should_install = inquirer.confirm(
+            message="Install the Paddle skill for your AI agents?",
+            default=True,
+        ).execute()
+        if should_install:
+            _install_agent_skill()
+        else:
+            console.print(
+                "[dim]Skipped. Run [bold]paddle skill install[/bold] whenever you want.[/dim]"
+            )
+    except (KeyboardInterrupt, EOFError):
+        console.print(
+            "\n[dim]Skipped skill installation. Your API key is already saved.[/dim]"
+        )
+
+
+def _install_agent_skill() -> None:
+    targets = agent_skill_targets()
+    has_detected_agent = any(target.detected for target in targets)
+    choices = [
+        Choice(
+            value=target.agent,
+            name=f"{target.agent}{' (detected)' if target.detected else ''}",
+            enabled=target.detected
+            or (target.agent == "Universal Agents" and not has_detected_agent),
+        )
+        for target in targets
+    ]
+    selected = inquirer.checkbox(
+        message="Which agents should use the Paddle skill?",
+        choices=choices,
+        instruction="Space to select, Enter to install",
+    ).execute()
+    if not selected:
+        console.print("[dim]No agents selected. Nothing was installed.[/dim]")
+        return
+
+    installed = ensure_agent_skills(agents=selected)
+    if installed:
+        names = ", ".join(item.agent for item in installed)
+        console.print(f"[green]Installed the Paddle skill for {names}.[/green]")
+    else:
+        console.print("[green]The Paddle skill is already up to date for those agents.[/green]")
 
 
 def run_whoami(store: CredentialStore, *, environment: str | None = None) -> int:

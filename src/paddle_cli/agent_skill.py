@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -20,13 +20,32 @@ class SkillInstallation:
     path: Path
 
 
+@dataclass(frozen=True)
+class SkillTarget:
+    agent: str
+    path: Path
+    detected: bool
+
+
+def agent_skill_targets(
+    *,
+    home: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> list[SkillTarget]:
+    """Return every supported agent target and whether it is present locally."""
+    resolved_home = home or Path.home()
+    resolved_environ = environ if environ is not None else os.environ
+    return _agent_targets(resolved_home, resolved_environ)
+
+
 def ensure_agent_skills(
     *,
+    agents: Collection[str] | None = None,
     home: Path | None = None,
     environ: Mapping[str, str] | None = None,
     resource_root: Path | None = None,
 ) -> list[SkillInstallation]:
-    """Install the bundled skill for detected agents without replacing user edits."""
+    """Install the bundled skill for selected or detected agents without replacing edits."""
     resolved_home = home or Path.home()
     resolved_environ = environ if environ is not None else os.environ
     resolved_resources = resource_root or Path(__file__).with_name("bundled_skill")
@@ -35,18 +54,27 @@ def ensure_agent_skills(
     except OSError:
         return []
 
+    targets = _agent_targets(resolved_home, resolved_environ)
+    if agents is None:
+        selected_targets = [target for target in targets if target.detected]
+        if not selected_targets:
+            selected_targets = [target for target in targets if target.agent == "Universal Agents"]
+    else:
+        selected_agents = set(agents)
+        selected_targets = [target for target in targets if target.agent in selected_agents]
+
     installed: list[SkillInstallation] = []
-    for agent, target in _agent_targets(resolved_home, resolved_environ):
+    for selected in selected_targets:
         try:
-            changed = _install_skill(target, contents)
+            changed = _install_skill(selected.path, contents)
         except (OSError, ValueError):
             continue
         if changed:
-            installed.append(SkillInstallation(agent, target))
+            installed.append(SkillInstallation(selected.agent, selected.path))
     return installed
 
 
-def _agent_targets(home: Path, environ: Mapping[str, str]) -> list[tuple[str, Path]]:
+def _agent_targets(home: Path, environ: Mapping[str, str]) -> list[SkillTarget]:
     codex_home = Path(environ.get("CODEX_HOME", home / ".codex")).expanduser()
     candidates = (
         ("Codex", codex_home, bool(environ.get("CODEX_HOME")) or codex_home.exists()),
@@ -62,14 +90,10 @@ def _agent_targets(home: Path, environ: Mapping[str, str]) -> list[tuple[str, Pa
             (home / ".config" / "agents").exists(),
         ),
     )
-    targets = [
-        (agent, root / "skills" / SKILL_NAME)
+    return [
+        SkillTarget(agent, root / "skills" / SKILL_NAME, detected)
         for agent, root, detected in candidates
-        if detected
     ]
-    if not targets:
-        targets.append(("Universal Agents", home / ".config" / "agents" / "skills" / SKILL_NAME))
-    return targets
 
 
 def _read_bundle(resource_root: Path) -> dict[str, str]:

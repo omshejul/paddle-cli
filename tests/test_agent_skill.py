@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from paddle_cli.agent_skill import MANAGED_FILE, ensure_agent_skills
+from paddle_cli.agent_skill import MANAGED_FILE, agent_skill_targets, ensure_agent_skills
 
 
 def make_bundle(root: Path, *, skill: str = "skill v1", metadata: str = "metadata v1") -> Path:
@@ -59,6 +59,31 @@ def test_uses_codex_home_environment(tmp_path: Path) -> None:
 
     assert len(installed) == 1
     assert installed[0].path == custom_codex_home / "skills" / "paddle-cli"
+
+
+def test_lists_detected_and_undetected_agents_for_selection(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".codex").mkdir(parents=True)
+
+    targets = agent_skill_targets(home=home, environ={})
+
+    assert next(target for target in targets if target.agent == "Codex").detected is True
+    assert next(target for target in targets if target.agent == "Cursor").detected is False
+
+
+def test_installs_only_selected_agents(tmp_path: Path) -> None:
+    bundle = make_bundle(tmp_path)
+    home = tmp_path / "home"
+
+    installed = ensure_agent_skills(
+        agents=["Codex", "Cursor"],
+        home=home,
+        environ={},
+        resource_root=bundle,
+    )
+
+    assert [item.agent for item in installed] == ["Codex", "Cursor"]
+    assert not (home / ".claude" / "skills" / "paddle-cli").exists()
 
 
 def test_falls_back_to_universal_agent_skills_directory(tmp_path: Path) -> None:

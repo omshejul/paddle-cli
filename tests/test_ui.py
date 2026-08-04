@@ -6,6 +6,7 @@ import pytest
 from rich.console import Console
 
 from paddle_cli import ui
+from paddle_cli.agent_skill import SkillInstallation, SkillTarget
 from paddle_cli.client import KeyInfo, ResponseResult
 from paddle_cli.credentials import CredentialError, ResolvedCredential, StoredCredential
 from paddle_cli.spec import Operation, PaddleSpec, Parameter
@@ -76,6 +77,40 @@ def test_login_validates_once_and_saves(monkeypatch) -> None:
     assert "API key saved" in rendered
     assert "paddle whoami" in rendered
     assert api_key not in rendered
+
+
+def test_skill_install_prompts_with_detected_agents_selected(monkeypatch, tmp_path) -> None:
+    output = StringIO()
+    targets = [
+        SkillTarget("Codex", tmp_path / ".codex" / "skills" / "paddle-cli", True),
+        SkillTarget("Cursor", tmp_path / ".cursor" / "skills" / "paddle-cli", False),
+        SkillTarget(
+            "Universal Agents",
+            tmp_path / ".config" / "agents" / "skills" / "paddle-cli",
+            False,
+        ),
+    ]
+    selected_agents: list[str] = []
+
+    def checkbox(**kwargs) -> Prompt:
+        choices = kwargs["choices"]
+        assert choices[0].enabled is True
+        assert choices[1].enabled is False
+        assert "detected" in choices[0].name
+        return Prompt(["Codex", "Cursor"])
+
+    def install(*, agents) -> list[SkillInstallation]:
+        selected_agents.extend(agents)
+        return [SkillInstallation("Codex", targets[0].path)]
+
+    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(ui, "agent_skill_targets", lambda: targets)
+    monkeypatch.setattr(ui.inquirer, "checkbox", checkbox)
+    monkeypatch.setattr(ui, "ensure_agent_skills", install)
+
+    assert ui.run_skill_install() == 0
+    assert selected_agents == ["Codex", "Cursor"]
+    assert "Installed the Paddle skill for Codex" in output.getvalue()
 
 
 def test_whoami_reads_saved_key_without_network_or_prompt(monkeypatch) -> None:

@@ -23,16 +23,6 @@ def test_default_command_shows_help_without_authentication(monkeypatch, capsys) 
     assert "paddle interactive" in output
 
 
-def test_real_cli_launch_installs_agent_skills(monkeypatch, capsys) -> None:
-    installed = []
-    monkeypatch.setattr(cli, "ensure_agent_skills", lambda: installed.append(True) or [])
-    monkeypatch.setattr(cli.sys, "argv", ["paddle"])
-
-    assert cli.main() == 0
-    assert installed == [True]
-    assert "paddle login" in capsys.readouterr().out
-
-
 def test_interactive_subcommand_keeps_api_navigator(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_interactive", lambda *_args, **_kwargs: 3)
 
@@ -42,30 +32,86 @@ def test_interactive_subcommand_keeps_api_navigator(monkeypatch) -> None:
 def test_login_is_an_explicit_top_level_command(monkeypatch) -> None:
     seen: dict[str, str | None] = {}
 
-    def login(_, *, api_key: str | None = None, environment: str | None = None) -> int:
+    def login(
+        _,
+        *,
+        api_key: str | None = None,
+        environment: str | None = None,
+        prompt_for_skill: bool = False,
+    ) -> int:
         seen["api_key"] = api_key
         seen["environment"] = environment
+        seen["prompt_for_skill"] = str(prompt_for_skill)
         return 4
 
     monkeypatch.setattr(cli, "run_login", login)
 
     assert cli.main(["login", "--key", "pdl_sdbx_apikey_test"]) == 4
-    assert seen == {"api_key": "pdl_sdbx_apikey_test", "environment": None}
+    assert seen == {
+        "api_key": "pdl_sdbx_apikey_test",
+        "environment": None,
+        "prompt_for_skill": "False",
+    }
 
 
 def test_login_can_read_key_from_standard_input(monkeypatch) -> None:
     seen: dict[str, str | None] = {}
 
-    def login(_, *, api_key: str | None = None, environment: str | None = None) -> int:
+    def login(
+        _,
+        *,
+        api_key: str | None = None,
+        environment: str | None = None,
+        prompt_for_skill: bool = False,
+    ) -> int:
         seen["api_key"] = api_key
         seen["environment"] = environment
+        seen["prompt_for_skill"] = str(prompt_for_skill)
         return 0
 
     monkeypatch.setattr(cli, "run_login", login)
     monkeypatch.setattr(cli.sys, "stdin", StringIO("pdl_sdbx_apikey_stdin\n"))
 
     assert cli.main(["login", "--key-stdin"]) == 0
-    assert seen == {"api_key": "pdl_sdbx_apikey_stdin", "environment": None}
+    assert seen == {
+        "api_key": "pdl_sdbx_apikey_stdin",
+        "environment": None,
+        "prompt_for_skill": "False",
+    }
+
+
+def test_interactive_login_offers_agent_skill_install(monkeypatch) -> None:
+    class InteractiveInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    seen: dict[str, object] = {}
+
+    def login(
+        _,
+        *,
+        api_key: str | None = None,
+        environment: str | None = None,
+        prompt_for_skill: bool = False,
+    ) -> int:
+        seen.update(
+            api_key=api_key,
+            environment=environment,
+            prompt_for_skill=prompt_for_skill,
+        )
+        return 0
+
+    monkeypatch.setattr(cli, "run_login", login)
+    monkeypatch.setattr(cli.sys, "stdin", InteractiveInput())
+
+    assert cli.main(["login"]) == 0
+    assert seen == {"api_key": None, "environment": None, "prompt_for_skill": True}
+
+
+def test_skill_install_is_an_explicit_command(monkeypatch) -> None:
+    monkeypatch.setattr(cli, "run_skill_install", lambda: 5)
+
+    assert cli.main(["skill", "install"]) == 5
 
 
 def test_old_nested_auth_command_is_not_exposed() -> None:
