@@ -29,7 +29,6 @@ dependencies = [
 
 [project.scripts]
 paddle = "paddle_cli.cli:main"
-paddle-cli = "paddle_cli.cli:main"
 
 [project.urls]
 Documentation = "https://github.com/omshejul/paddle-cli#readme"
