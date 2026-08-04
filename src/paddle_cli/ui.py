@@ -84,11 +84,14 @@ def run_skill_install() -> int:
 
 def _offer_agent_skill_install() -> None:
     try:
-        should_install = inquirer.confirm(
+        answer = inquirer.text(
             message="Install the Paddle skill for your AI agents?",
-            default=True,
+            instruction="(Y/n)",
+            validate=_is_yes_no_answer,
+            invalid_message="Enter y or n.",
+            mandatory=False,
         ).execute()
-        if should_install:
+        if _yes_no_answer(answer, default=True):
             _install_agent_skill()
         else:
             console.print(
@@ -98,6 +101,17 @@ def _offer_agent_skill_install() -> None:
         console.print(
             "\n[dim]Skipped skill installation. Your API key is already saved.[/dim]"
         )
+
+
+def _is_yes_no_answer(answer: str) -> bool:
+    return answer.strip().lower() in {"", "y", "yes", "n", "no"}
+
+
+def _yes_no_answer(answer: str, *, default: bool) -> bool:
+    normalized = answer.strip().lower()
+    if not normalized:
+        return default
+    return normalized in {"y", "yes"}
 
 
 def _install_agent_skill() -> None:

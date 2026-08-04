@@ -113,6 +113,31 @@ def test_skill_install_prompts_with_detected_agents_selected(monkeypatch, tmp_pa
     assert "Installed the Paddle skill for Codex" in output.getvalue()
 
 
+def test_skill_install_offer_requires_enter_after_typing_yes(monkeypatch) -> None:
+    installed: list[bool] = []
+
+    def text_prompt(**kwargs) -> Prompt:
+        assert kwargs["instruction"] == "(Y/n)"
+        assert kwargs["mandatory"] is False
+        assert kwargs["validate"]("") is True
+        assert kwargs["validate"]("Y") is True
+        assert kwargs["validate"]("maybe") is False
+        return Prompt("Y")
+
+    monkeypatch.setattr(ui.inquirer, "text", text_prompt)
+    monkeypatch.setattr(ui, "_install_agent_skill", lambda: installed.append(True))
+
+    ui._offer_agent_skill_install()
+
+    assert installed == [True]
+
+
+def test_skill_install_offer_accepts_enter_as_yes_and_no_as_no(monkeypatch) -> None:
+    assert ui._yes_no_answer("", default=True) is True
+    assert ui._yes_no_answer("n", default=True) is False
+    assert ui._yes_no_answer("NO", default=True) is False
+
+
 def test_whoami_reads_saved_key_without_network_or_prompt(monkeypatch) -> None:
     output = StringIO()
     api_key = "pdl_sdbx_apikey_saved"
