@@ -482,7 +482,10 @@ def _run_raw(client: PaddleClient) -> None:
     method = inquirer.select(
         message="HTTP method:", choices=["GET", "POST", "PATCH", "PUT", "DELETE"]
     ).execute()
-    path = inquirer.text(message="API path:", default="/").execute().strip()
+    path = inquirer.text(
+        message="API path (for example /products):",
+        default="",
+    ).execute().strip()
     query = _prompt_json_object("Query JSON (blank for none):", allow_blank=True)
     if query is _CANCEL:
         return

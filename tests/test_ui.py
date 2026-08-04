@@ -334,7 +334,8 @@ def test_interactive_raw_read_executes_and_returns_to_menu(monkeypatch) -> None:
         return Prompt(next(menu_actions))
 
     def text_prompt(**kwargs) -> Prompt:
-        if kwargs["message"] == "API path:":
+        if kwargs["message"] == "API path (for example /products):":
+            assert kwargs["default"] == ""
             return Prompt("/event-types")
         return Prompt("")
 
