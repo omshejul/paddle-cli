@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from paddle_cli import __version__
+from paddle_cli.agent_skill import ensure_agent_skills
 from paddle_cli.client import PaddleClient, PaddleCliError
 from paddle_cli.credentials import (
     ACCOUNT_NAME,
@@ -114,6 +115,8 @@ Run 'paddle help <command>' for command-specific help.""",
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        ensure_agent_skills()
     parser = build_parser()
     args = parser.parse_args(argv)
     spec_store = SpecStore()

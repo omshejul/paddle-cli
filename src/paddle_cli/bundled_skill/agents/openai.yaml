@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paddle CLI"
+  short_description: "Use Paddle Billing safely from the terminal"
+  default_prompt: "Use $paddle-cli to inspect or operate Paddle Billing safely with the Paddle CLI."

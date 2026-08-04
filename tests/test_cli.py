@@ -23,6 +23,16 @@ def test_default_command_shows_help_without_authentication(monkeypatch, capsys) 
     assert "paddle interactive" in output
 
 
+def test_real_cli_launch_installs_agent_skills(monkeypatch, capsys) -> None:
+    installed = []
+    monkeypatch.setattr(cli, "ensure_agent_skills", lambda: installed.append(True) or [])
+    monkeypatch.setattr(cli.sys, "argv", ["paddle"])
+
+    assert cli.main() == 0
+    assert installed == [True]
+    assert "paddle login" in capsys.readouterr().out
+
+
 def test_interactive_subcommand_keeps_api_navigator(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_interactive", lambda *_args, **_kwargs: 3)
 

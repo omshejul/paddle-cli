@@ -248,11 +248,16 @@ of permissions needed, especially for live accounts.
 
 ## AI agent skill
 
-The repository includes a compact, reusable agent skill at
+The package includes a compact, reusable agent skill at
 [`skills/paddle-cli/SKILL.md`](skills/paddle-cli/SKILL.md). It teaches AI agents
 how to discover operations, use noninteractive commands, protect credentials,
 and handle sandbox and live writes safely without copying the full API reference
 into their context.
+
+The first `paddle` launch installs the bundled skill for detected Codex, Claude
+Code, Cursor, Gemini CLI, GitHub Copilot, OpenCode, and compatible agent-skills
+directories. Later CLI upgrades update the managed copy, but never overwrite a
+skill that the user has edited.
 
 ## Development
 
