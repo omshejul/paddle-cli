@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from contextlib import suppress
 from dataclasses import dataclass
 
 import keyring
@@ -68,6 +67,7 @@ class CredentialStore:
         try:
             keyring.set_password(SERVICE_NAME, ACCOUNT_NAME, payload)
         except KeyringError as exc:
+            self._restore_after_failed_save(previous)
             raise CredentialError("Could not save the key in system credentials.") from exc
         try:
             saved = keyring.get_password(SERVICE_NAME, ACCOUNT_NAME)
@@ -111,7 +111,23 @@ class CredentialStore:
         try:
             keyring.delete_password(SERVICE_NAME, ACCOUNT_NAME)
         except KeyringError as exc:
-            raise CredentialError("Could not remove the key from system credentials.") from exc
+            try:
+                remaining = keyring.get_password(SERVICE_NAME, ACCOUNT_NAME)
+            except KeyringError as read_exc:
+                raise CredentialError(
+                    "Could not verify credential removal; credential state may have changed."
+                ) from read_exc
+            if remaining is not None:
+                raise CredentialError("Could not remove the key from system credentials.") from exc
+            return True
+        try:
+            remaining = keyring.get_password(SERVICE_NAME, ACCOUNT_NAME)
+        except KeyringError as exc:
+            raise CredentialError(
+                "Could not verify credential removal; credential state may have changed."
+            ) from exc
+        if remaining is not None:
+            raise CredentialError("The system credential backend did not remove the key.")
         return True
 
     def _backend_module(self) -> str:
@@ -126,8 +142,21 @@ class CredentialStore:
             )
 
     def _restore_after_failed_save(self, previous: str | None) -> None:
-        with suppress(Exception):
+        restore_error: Exception | None = None
+        try:
             if previous is None:
                 keyring.delete_password(SERVICE_NAME, ACCOUNT_NAME)
             else:
                 keyring.set_password(SERVICE_NAME, ACCOUNT_NAME, previous)
+        except Exception as exc:
+            restore_error = exc
+        try:
+            restored = keyring.get_password(SERVICE_NAME, ACCOUNT_NAME)
+        except Exception as exc:
+            raise CredentialError(
+                "Could not verify credential rollback; credential state may have changed."
+            ) from exc
+        if restored != previous:
+            raise CredentialError(
+                "Could not restore the previous credential; credential state may have changed."
+            ) from restore_error

@@ -19,6 +19,25 @@ PATH_PARAMETER = re.compile(r"\{([^}]+)\}")
 HTTP_STATUS = re.compile(r"\b([1-5]\d{2}) [^·\r\n]+ ·")
 PUBLIC_READ_PATHS = {"/event-types", "/ips", "/simulation-types"}
 SAFE_REJECTION_STATUSES = {400, 404, 422}
+REVIEWED_WRITE_PATH_PARAMETERS = {
+    "address_id",
+    "business_id",
+    "client_token_id",
+    "customer_id",
+    "discount_group_id",
+    "discount_id",
+    "domain_id",
+    "notification_id",
+    "notification_setting_id",
+    "payment_method_id",
+    "price_id",
+    "product_id",
+    "simulation_event_id",
+    "simulation_id",
+    "simulation_run_id",
+    "subscription_id",
+    "transaction_id",
+}
 
 
 @dataclass(frozen=True)
@@ -72,16 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     operation_pairs = {(operation.method, operation.path) for operation in operations}
     if len(operation_pairs) != len(operations):
         parser.error("The cached specification contains duplicate method/path operations.")
-    writes_without_ids = [
-        operation for operation in operations if operation.is_write and "{" not in operation.path
-    ]
-    unsafe_writes = [
-        operation
-        for operation in writes_without_ids
-        if operation.method == "DELETE"
-        or not operation.request_body_required
-        or not _is_required_object_schema(spec, operation.request_body)
-    ]
+    unsafe_writes = _unproven_write_operations(spec, operations)
     if unsafe_writes:
         names = ", ".join(f"{item.method} {item.path}" for item in unsafe_writes)
         parser.error(f"Refusing structurally unproven write probes: {names}")
@@ -213,9 +223,30 @@ def _is_required_object_schema(spec: PaddleSpec, raw_schema: dict[str, object] |
             for branch in branches
             if isinstance(branch, dict)
         ) and all(isinstance(branch, dict) for branch in branches)
-    is_object = schema.get("type") == "object" or "properties" in schema
+    is_object = schema.get("type") == "object"
     required = schema.get("required")
     return is_object and isinstance(required, list) and bool(required)
+
+
+def _unproven_write_operations(
+    spec: PaddleSpec, operations: list[Operation]
+) -> list[Operation]:
+    unsafe: list[Operation] = []
+    for operation in operations:
+        if not operation.is_write:
+            continue
+        path_parameters = set(PATH_PARAMETER.findall(operation.path))
+        if path_parameters:
+            if not path_parameters.issubset(REVIEWED_WRITE_PATH_PARAMETERS):
+                unsafe.append(operation)
+            continue
+        if (
+            operation.method == "DELETE"
+            or not operation.request_body_required
+            or not _is_required_object_schema(spec, operation.request_body)
+        ):
+            unsafe.append(operation)
+    return unsafe
 
 
 def _is_expected(result: ProbeResult) -> bool:

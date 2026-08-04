@@ -63,6 +63,7 @@ def test_system_store_errors_do_not_include_secrets(monkeypatch) -> None:
 
     monkeypatch.setattr(credentials.keyring, "set_password", fail)
     monkeypatch.setattr(credentials.keyring, "get_password", lambda *_: None)
+    monkeypatch.setattr(credentials.keyring, "delete_password", lambda *_: None)
 
     with pytest.raises(CredentialError, match="Could not save") as error:
         CredentialStore().save("pdl_live_apikey_do-not-leak", "live")
@@ -110,6 +111,80 @@ def test_failed_replacement_restores_previous_credential(monkeypatch) -> None:
     assert values[(credentials.SERVICE_NAME, credentials.ACCOUNT_NAME)] == old_payload
 
 
+def test_partial_write_exception_restores_previous_credential(monkeypatch) -> None:
+    old_payload = json.dumps({"api_key": "pdl_sdbx_apikey_old", "environment": "sandbox"})
+    values = {(credentials.SERVICE_NAME, credentials.ACCOUNT_NAME): old_payload}
+    set_calls = 0
+
+    def set_password(service: str, account: str, value: str) -> None:
+        nonlocal set_calls
+        set_calls += 1
+        values[(service, account)] = value
+        if set_calls == 1:
+            raise KeyringError("failed after write")
+
+    monkeypatch.setattr(
+        credentials.keyring,
+        "get_password",
+        lambda service, account: values.get((service, account)),
+    )
+    monkeypatch.setattr(credentials.keyring, "set_password", set_password)
+
+    with pytest.raises(CredentialError, match="Could not save"):
+        CredentialStore().save("pdl_sdbx_apikey_new", "sandbox")
+
+    assert values[(credentials.SERVICE_NAME, credentials.ACCOUNT_NAME)] == old_payload
+
+
+def test_failed_rollback_reports_uncertain_credential_state(monkeypatch) -> None:
+    old_payload = json.dumps({"api_key": "pdl_sdbx_apikey_old", "environment": "sandbox"})
+    new_payload = json.dumps(
+        {"api_key": "pdl_sdbx_apikey_new", "environment": "sandbox"},
+        separators=(",", ":"),
+    )
+    values = {(credentials.SERVICE_NAME, credentials.ACCOUNT_NAME): old_payload}
+    set_calls = 0
+
+    def set_password(service: str, account: str, value: str) -> None:
+        nonlocal set_calls
+        set_calls += 1
+        if set_calls == 1:
+            values[(service, account)] = new_payload
+            raise KeyringError("failed after write")
+
+    monkeypatch.setattr(
+        credentials.keyring,
+        "get_password",
+        lambda service, account: values.get((service, account)),
+    )
+    monkeypatch.setattr(credentials.keyring, "set_password", set_password)
+
+    with pytest.raises(CredentialError, match="state may have changed"):
+        CredentialStore().save("pdl_sdbx_apikey_new", "sandbox")
+
+
+def test_rollback_read_failure_reports_uncertain_credential_state(monkeypatch) -> None:
+    old_payload = json.dumps({"api_key": "pdl_sdbx_apikey_old", "environment": "sandbox"})
+    reads = 0
+
+    def get_password(*_) -> str:
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return old_payload
+        raise KeyringError("read failed")
+
+    monkeypatch.setattr(credentials.keyring, "get_password", get_password)
+    monkeypatch.setattr(
+        credentials.keyring,
+        "set_password",
+        lambda *_: (_ for _ in ()).throw(KeyringError("write failed")),
+    )
+
+    with pytest.raises(CredentialError, match="state may have changed"):
+        CredentialStore().save("pdl_sdbx_apikey_new", "sandbox")
+
+
 def test_unsupported_backend_is_rejected(monkeypatch) -> None:
     class NullBackend:
         pass
@@ -136,6 +211,15 @@ def test_delete_removes_an_unreadable_saved_value(monkeypatch) -> None:
 
     assert CredentialStore().delete() is True
     assert values == {}
+
+
+def test_delete_rejects_backend_that_does_not_remove_value(monkeypatch) -> None:
+    payload = json.dumps({"api_key": "pdl_sdbx_apikey_old", "environment": "sandbox"})
+    monkeypatch.setattr(credentials.keyring, "get_password", lambda *_: payload)
+    monkeypatch.setattr(credentials.keyring, "delete_password", lambda *_: None)
+
+    with pytest.raises(CredentialError, match="did not remove"):
+        CredentialStore().delete()
 
 
 def test_environment_key_overrides_saved_key(monkeypatch) -> None:

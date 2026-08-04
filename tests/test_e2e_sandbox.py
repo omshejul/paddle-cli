@@ -10,6 +10,7 @@ from scripts.e2e_sandbox import (
     _is_required_object_schema,
     _must_abort,
     _probe,
+    _unproven_write_operations,
 )
 
 
@@ -58,6 +59,10 @@ def test_required_object_schema_rejects_array_or_optional_branch() -> None:
         is False
     )
     assert _is_required_object_schema(spec, {"type": "object", "properties": {}}) is False
+    assert (
+        _is_required_object_schema(spec, {"required": ["name"], "properties": {"name": {}}})
+        is False
+    )
 
 
 def test_write_success_aborts_and_is_never_expected() -> None:
@@ -87,12 +92,21 @@ def test_pathless_delete_is_not_a_safe_schema_probe() -> None:
         ("Danger",),
     )
 
-    is_safe = (
-        operation.method != "DELETE"
-        and operation.request_body_required
-        and _is_required_object_schema(spec, operation.request_body)
+    assert _unproven_write_operations(spec, [operation]) == [operation]
+
+
+def test_unknown_future_write_path_parameter_is_refused() -> None:
+    spec = PaddleSpec({"openapi": "3.1.0"})
+    operation = Operation(
+        "POST",
+        "/settings/{user_controlled_name}",
+        "update-setting",
+        "Update setting",
+        "",
+        ("Settings",),
     )
-    assert is_safe is False
+
+    assert _unproven_write_operations(spec, [operation]) == [operation]
 
 
 def test_probe_pins_sandbox_and_never_reports_captured_content(monkeypatch) -> None:
