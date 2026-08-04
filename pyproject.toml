@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paddle-api-cli"
+version = "0.1.0"
+description = "A secure, spec-driven interactive CLI for the Paddle Billing API"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Paddle CLI contributors" }]
+keywords = ["paddle", "billing", "cli", "openapi"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "httpx>=0.28,<1",
+  "inquirerpy>=0.3.4,<1",
+  "pyyaml>=6.0,<7",
+  "rich>=14,<15",
+]
+
+[project.scripts]
+paddle = "paddle_cli.cli:main"
+paddle-cli = "paddle_cli.cli:main"
+
+[project.urls]
+Documentation = "https://developer.paddle.com/api-reference/"
+Source = "https://github.com/PaddleHQ/paddle-openapi"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paddle_cli"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

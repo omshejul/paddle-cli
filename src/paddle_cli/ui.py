@@ -1,0 +1,455 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+from InquirerPy import inquirer
+from InquirerPy.base.control import Choice
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
+
+from paddle_cli.client import PaddleClient, PaddleCliError, inspect_api_key
+from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecStore
+
+console = Console()
+
+
+def run_interactive(store: SpecStore) -> int:
+    console.print(
+        Panel.fit(
+            "[bold]Paddle CLI[/bold]\nExplore and call the complete Paddle Billing API.",
+            border_style="cyan",
+        )
+    )
+    try:
+        spec = _load_spec(store)
+        while True:
+            client = _authenticate()
+            result = _main_menu(spec, client)
+            if result == "quit":
+                return 0
+            if result == "refresh":
+                spec = _load_spec(store, refresh=True)
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[dim]Exited without changing credentials or local configuration.[/dim]")
+        return 130
+    except (PaddleCliError, SpecError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        return 1
+
+
+def _load_spec(store: SpecStore, *, refresh: bool = False) -> PaddleSpec:
+    message = "Refreshing Paddle API reference..." if refresh else "Loading Paddle API reference..."
+    with console.status(message):
+        spec = store.load(refresh=refresh)
+    count = len(spec.operations())
+    console.print(f"[dim]Loaded {count} operations from Paddle's OpenAPI specification.[/dim]")
+    return spec
+
+
+def _authenticate() -> PaddleClient:
+    while True:
+        api_key = inquirer.secret(
+            message="Paddle API key:",
+            instruction="(input is hidden and never saved)",
+        ).execute()
+        environment: str | None = None
+        try:
+            inspect_api_key(api_key)
+        except PaddleCliError as exc:
+            if "does not identify an environment" in str(exc):
+                environment = inquirer.select(
+                    message="API environment:",
+                    choices=["sandbox", "live"],
+                ).execute()
+            else:
+                console.print(f"[red]{exc}[/red]")
+                continue
+        try:
+            client = PaddleClient(api_key, environment=environment)
+            with console.status(f"Checking {client.key_info.environment} credentials..."):
+                response = client.verify()
+            if response.status_code in {401, 403}:
+                console.print("[red]Paddle rejected that API key.[/red]")
+                continue
+            if not response.succeeded:
+                console.print(
+                    f"[yellow]Paddle returned {response.status_code}; "
+                    "continuing so you can inspect "
+                    "the response from an operation.[/yellow]"
+                )
+            color = "red" if client.key_info.environment == "live" else "green"
+            console.print(f"Connected to [{color}]{client.key_info.environment}[/{color}].")
+            return client
+        except PaddleCliError as exc:
+            console.print(f"[red]{exc}[/red]")
+
+
+def _main_menu(spec: PaddleSpec, client: PaddleClient) -> str:
+    while True:
+        action = inquirer.select(
+            message=f"Paddle {client.key_info.environment}:",
+            choices=[
+                Choice("browse", "Browse by resource"),
+                Choice("search", "Search all operations"),
+                Choice("raw", "Send a raw API request"),
+                Choice("refresh", "Refresh API reference"),
+                Choice("key", "Change API key"),
+                Choice("quit", "Quit"),
+            ],
+        ).execute()
+        if action in {"quit", "key", "refresh"}:
+            return action
+        if action == "browse":
+            operation = _browse(spec)
+            if operation:
+                _run_operation(spec, client, operation)
+        elif action == "search":
+            operation = _search(spec)
+            if operation:
+                _run_operation(spec, client, operation)
+        elif action == "raw":
+            _run_raw(client)
+
+
+def _browse(spec: PaddleSpec) -> Operation | None:
+    grouped: dict[str, list[Operation]] = {}
+    for operation in spec.operations():
+        grouped.setdefault(operation.tags[0], []).append(operation)
+    tag = inquirer.fuzzy(
+        message="Resource:",
+        choices=[Choice(name, f"{name} ({len(items)})") for name, items in sorted(grouped.items())],
+        mandatory=False,
+    ).execute()
+    if not tag:
+        return None
+    return inquirer.fuzzy(
+        message="Operation:",
+        choices=[Choice(operation, operation.label) for operation in grouped[tag]],
+        mandatory=False,
+    ).execute()
+
+
+def _search(spec: PaddleSpec) -> Operation | None:
+    phrase = inquirer.text(message="Search:").execute().strip().lower()
+    if not phrase:
+        return None
+    matches = [
+        operation
+        for operation in spec.operations()
+        if phrase
+        in " ".join(
+            [
+                operation.operation_id,
+                operation.summary,
+                operation.path,
+                *operation.tags,
+            ]
+        ).lower()
+    ]
+    if not matches:
+        console.print("[yellow]No matching operations.[/yellow]")
+        return None
+    return inquirer.fuzzy(
+        message=f"Operation ({len(matches)} matches):",
+        choices=[Choice(operation, operation.label) for operation in matches],
+        mandatory=False,
+    ).execute()
+
+
+def _run_operation(spec: PaddleSpec, client: PaddleClient, operation: Operation) -> None:
+    _show_operation(operation)
+    path_parameters: dict[str, Any] = {}
+    query: dict[str, Any] = {}
+    headers: dict[str, str] = {}
+    by_location = {"path": path_parameters, "query": query, "header": headers}
+    for location, target in by_location.items():
+        parameters = [item for item in operation.parameters if item.location == location]
+        selected = _choose_parameters(parameters)
+        for parameter in selected:
+            target[parameter.name] = _prompt_parameter(parameter)
+
+    body = None
+    if operation.request_body is not None:
+        body = _prompt_body(spec, operation)
+        if body is _CANCEL:
+            return
+
+    _show_preview(client, operation, path_parameters, query, headers, body)
+    if not confirm_execution(operation, client.key_info.environment):
+        console.print("[dim]Request canceled.[/dim]")
+        return
+    with console.status("Calling Paddle..."):
+        try:
+            response = client.request(
+                operation,
+                path_parameters=path_parameters,
+                query=query,
+                headers=headers,
+                body=body,
+            )
+        except PaddleCliError as exc:
+            console.print(f"[red]Request failed:[/red] {exc}")
+            return
+    render_response(response)
+    while (
+        response.next_url
+        and inquirer.confirm(message="Fetch the next page?", default=True).execute()
+    ):
+        try:
+            with console.status("Fetching the next page..."):
+                response = client.request(
+                    operation,
+                    path_parameters=path_parameters,
+                    query=pagination_query(response.next_url),
+                    headers=headers,
+                    body=body,
+                )
+        except PaddleCliError as exc:
+            console.print(f"[red]Request failed:[/red] {exc}")
+            return
+        render_response(response)
+
+
+def _show_operation(operation: Operation) -> None:
+    details = Text()
+    details.append(f"{operation.method} ", style="bold cyan")
+    details.append(operation.path, style="bold")
+    details.append(f"\n{operation.summary}")
+    if operation.permission:
+        details.append(f"\nPermission: {operation.permission}", style="yellow")
+    if operation.docs_url:
+        details.append(f"\nDocs: {operation.docs_url}", style="dim")
+    console.print(Panel(details, title=operation.tags[0]))
+    if operation.description:
+        console.print(Markdown(operation.description))
+
+
+def _choose_parameters(parameters: list[Parameter]) -> list[Parameter]:
+    required = [item for item in parameters if item.required]
+    optional = [item for item in parameters if not item.required]
+    if not optional:
+        return required
+    choices = [
+        Choice(
+            item,
+            f"{item.name}" + (f"  {shorten(item.description, 70)}" if item.description else ""),
+        )
+        for item in optional
+    ]
+    selected = inquirer.checkbox(
+        message=f"Optional {optional[0].location} parameters:",
+        choices=choices,
+        instruction="(space to select, enter to continue)",
+    ).execute()
+    return [*required, *selected]
+
+
+def _prompt_parameter(parameter: Parameter) -> Any:
+    schema = parameter.schema
+    enum = schema.get("enum")
+    message = f"{parameter.name}{' (required)' if parameter.required else ''}:"
+    if enum:
+        return inquirer.select(message=message, choices=list(enum)).execute()
+    if schema.get("type") == "boolean":
+        return inquirer.select(message=message, choices=[True, False]).execute()
+    default = parameter.example
+    if default is None:
+        default = schema.get("default", "")
+    while True:
+        raw = inquirer.text(
+            message=message, default=str(default) if default != "" else ""
+        ).execute()
+        if parameter.required and not raw.strip():
+            console.print("[red]A value is required.[/red]")
+            continue
+        try:
+            return parse_typed_value(raw, schema)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+
+
+_CANCEL = object()
+
+
+def _prompt_body(spec: PaddleSpec, operation: Operation) -> Any:
+    example = spec.example_for(operation.request_body)
+    if example not in (None, "", {}, []):
+        console.print("[bold]Request body template[/bold]")
+        console.print(Syntax(json.dumps(example, indent=2), "json", word_wrap=True))
+    choices = [Choice("inline", "Enter JSON")]
+    choices.append(Choice("file", "Load JSON from a file"))
+    if not operation.request_body_required:
+        choices.append(Choice("none", "Send no request body"))
+    choices.append(Choice("cancel", "Cancel"))
+    mode = inquirer.select(message="Request body:", choices=choices).execute()
+    if mode == "cancel":
+        return _CANCEL
+    if mode == "none":
+        return None
+    if mode == "file":
+        path = Path(inquirer.filepath(message="JSON file:", only_files=True).execute()).expanduser()
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            console.print(f"[red]Could not read JSON body:[/red] {exc}")
+            return _CANCEL
+    default = json.dumps(example, separators=(",", ":")) if example not in (None, "") else "{}"
+    while True:
+        raw = inquirer.text(message="JSON:", default=default).execute()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            console.print(f"[red]Invalid JSON at character {exc.pos}: {exc.msg}[/red]")
+
+
+def _show_preview(
+    client: PaddleClient,
+    operation: Operation,
+    path_parameters: dict[str, Any],
+    query: dict[str, Any],
+    headers: dict[str, str],
+    body: Any,
+) -> None:
+    path = operation.path
+    for name, value in path_parameters.items():
+        path = path.replace("{" + name + "}", str(value))
+    preview = {
+        "method": operation.method,
+        "url": client.base_url + path,
+        "query": query or None,
+        "headers": headers or None,
+        "body": body,
+    }
+    console.print(Panel(Syntax(json.dumps(preview, indent=2), "json"), title="Request preview"))
+
+
+def confirm_execution(operation: Operation, environment: str, *, assume_yes: bool = False) -> bool:
+    if not operation.is_write:
+        return True
+    if assume_yes:
+        return True
+    if environment == "live":
+        console.print("[bold red]This request can change live Paddle data.[/bold red]")
+        typed = inquirer.text(message="Type LIVE to execute:").execute()
+        return typed == "LIVE"
+    return bool(inquirer.confirm(message="Execute this sandbox write?", default=False).execute())
+
+
+def render_response(response: Any) -> None:
+    color = "green" if response.succeeded else "red"
+    title = f"{response.status_code} {response.reason} · {response.elapsed_ms} ms"
+    if response.request_id:
+        title += f" · request {response.request_id}"
+    if isinstance(response.body, (dict, list)):
+        content: Any = Syntax(json.dumps(response.body, indent=2), "json", word_wrap=True)
+    else:
+        content = str(response.body)
+    console.print(Panel(content, title=title, border_style=color))
+
+
+def _run_raw(client: PaddleClient) -> None:
+    method = inquirer.select(
+        message="HTTP method:", choices=["GET", "POST", "PATCH", "PUT", "DELETE"]
+    ).execute()
+    path = inquirer.text(message="API path:", default="/").execute().strip()
+    query = _prompt_json_object("Query JSON (blank for none):", allow_blank=True)
+    if query is _CANCEL:
+        return
+    body: Any = None
+    if method not in {"GET", "DELETE"}:
+        body = _prompt_json_object("Body JSON (blank for none):", allow_blank=True)
+        if body is _CANCEL:
+            return
+    operation = Operation(
+        method=method,
+        path=path,
+        operation_id="raw-request",
+        summary="Raw API request",
+        description="",
+        tags=("Raw",),
+    )
+    _show_preview(client, operation, {}, query, {}, body)
+    if not confirm_execution(operation, client.key_info.environment):
+        console.print("[dim]Request canceled.[/dim]")
+        return
+    try:
+        with console.status("Calling Paddle..."):
+            response = client.request(operation, query=query, body=body)
+    except PaddleCliError as exc:
+        console.print(f"[red]Request failed:[/red] {exc}")
+        return
+    render_response(response)
+
+
+def _prompt_json_object(message: str, *, allow_blank: bool) -> dict[str, Any] | object:
+    while True:
+        raw = inquirer.text(message=message).execute().strip()
+        if allow_blank and not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            console.print(f"[red]Invalid JSON at character {exc.pos}: {exc.msg}[/red]")
+            continue
+        if isinstance(value, dict):
+            return value
+        console.print("[red]Enter a JSON object.[/red]")
+
+
+def parse_typed_value(raw: str, schema: dict[str, Any]) -> Any:
+    schema_type = schema.get("type")
+    if schema_type == "integer":
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise ValueError("Enter a whole number.") from exc
+    if schema_type == "number":
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise ValueError("Enter a number.") from exc
+    if schema_type == "boolean":
+        if raw.lower() in {"true", "1", "yes"}:
+            return True
+        if raw.lower() in {"false", "0", "no"}:
+            return False
+        raise ValueError("Enter true or false.")
+    if schema_type in {"array", "object"}:
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Enter valid JSON.") from exc
+        if schema_type == "array" and not isinstance(value, list):
+            raise ValueError("Enter a JSON array.")
+        if schema_type == "object" and not isinstance(value, dict):
+            raise ValueError("Enter a JSON object.")
+        return value
+    return raw
+
+
+def pagination_query(next_url: str) -> dict[str, Any]:
+    parsed = urlparse(next_url)
+    return {name: values[-1] for name, values in parse_qs(parsed.query).items()}
+
+
+def shorten(value: str, length: int) -> str:
+    normalized = " ".join(value.split())
+    return normalized if len(normalized) <= length else normalized[: length - 1] + "…"
+
+
+def operations_table(operations: list[Operation]) -> Table:
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Method", no_wrap=True)
+    table.add_column("Resource")
+    table.add_column("Operation")
+    table.add_column("Path")
+    for operation in operations:
+        table.add_row(operation.method, operation.tags[0], operation.summary, operation.path)
+    return table
