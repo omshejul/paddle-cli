@@ -15,12 +15,13 @@ from rich.table import Table
 from rich.text import Text
 
 from paddle_cli.client import PaddleClient, PaddleCliError, inspect_api_key
+from paddle_cli.credentials import CredentialError, CredentialStore
 from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecStore
 
 console = Console()
 
 
-def run_key_check() -> int:
+def run_key_check(store: CredentialStore, *, force_prompt: bool = False) -> int:
     console.print(
         Panel.fit(
             "[bold]Paddle CLI[/bold]\nValidate a Paddle API key.",
@@ -28,20 +29,20 @@ def run_key_check() -> int:
         )
     )
     try:
-        api_key = inquirer.secret(
-            message="Paddle API key:",
-            instruction="(input is hidden and never saved)",
-        ).execute()
-        environment: str | None = None
-        try:
-            inspect_api_key(api_key)
-        except PaddleCliError as exc:
-            if "does not identify an environment" not in str(exc):
-                raise
-            environment = inquirer.select(
-                message="API environment:",
-                choices=["sandbox", "live"],
-            ).execute()
+        saved = None
+        if not force_prompt:
+            try:
+                saved = store.load()
+            except CredentialError as exc:
+                console.print(f"[yellow]{exc} Enter the key manually.[/yellow]")
+
+        using_saved = saved is not None
+        if saved is not None:
+            api_key = saved.api_key
+            environment: str | None = saved.environment
+            console.print("[dim]Using the API key saved in system credentials.[/dim]")
+        else:
+            api_key, environment = _prompt_api_key()
 
         client = PaddleClient(api_key, environment=environment)
         with console.status("Validating with Paddle..."):
@@ -50,11 +51,24 @@ def run_key_check() -> int:
             console.print(
                 Panel.fit(
                     f"[bold red]API key is not valid[/bold red]\n"
-                    f"Paddle returned {response.status_code} {response.reason}.",
+                    f"Paddle returned {response.status_code} {response.reason}."
+                    + (
+                        "\nRun [bold]paddle auth login[/bold] to replace the saved key."
+                        if using_saved
+                        else ""
+                    ),
                     border_style="red",
                 )
             )
             return 1
+
+        saved_now = False
+        if not using_saved:
+            try:
+                store.save(api_key, client.key_info.environment)
+                saved_now = True
+            except CredentialError as exc:
+                console.print(f"[yellow]{exc} The key was not saved.[/yellow]")
 
         details = Table.grid(padding=(0, 2))
         details.add_column(style="bold")
@@ -70,6 +84,8 @@ def run_key_check() -> int:
         if response.request_id:
             details.add_row("Request ID", response.request_id)
         console.print(Panel.fit(details, title="API key is valid", border_style="green"))
+        if saved_now:
+            console.print("[green]Saved securely in your system credential manager.[/green]")
         return 0
     except (KeyboardInterrupt, EOFError):
         console.print("\n[dim]Canceled.[/dim]")
@@ -79,7 +95,25 @@ def run_key_check() -> int:
         return 1
 
 
-def run_interactive(store: SpecStore) -> int:
+def _prompt_api_key() -> tuple[str, str | None]:
+    api_key = inquirer.secret(
+        message="Paddle API key:",
+        instruction="(input is hidden and saved after validation)",
+    ).execute()
+    environment: str | None = None
+    try:
+        inspect_api_key(api_key)
+    except PaddleCliError as exc:
+        if "does not identify an environment" not in str(exc):
+            raise
+        environment = inquirer.select(
+            message="API environment:",
+            choices=["sandbox", "live"],
+        ).execute()
+    return api_key, environment
+
+
+def run_interactive(spec_store: SpecStore, credential_store: CredentialStore) -> int:
     console.print(
         Panel.fit(
             "[bold]Paddle CLI[/bold]\nExplore and call the complete Paddle Billing API.",
@@ -87,14 +121,18 @@ def run_interactive(store: SpecStore) -> int:
         )
     )
     try:
-        spec = _load_spec(store)
+        spec = _load_spec(spec_store)
+        force_prompt = False
         while True:
-            client = _authenticate()
+            client = _authenticate(credential_store, force_prompt=force_prompt)
+            force_prompt = False
             result = _main_menu(spec, client)
             if result == "quit":
                 return 0
             if result == "refresh":
-                spec = _load_spec(store, refresh=True)
+                spec = _load_spec(spec_store, refresh=True)
+            if result == "key":
+                force_prompt = True
     except (KeyboardInterrupt, EOFError):
         console.print("\n[dim]Exited without changing credentials or local configuration.[/dim]")
         return 130
@@ -112,22 +150,24 @@ def _load_spec(store: SpecStore, *, refresh: bool = False) -> PaddleSpec:
     return spec
 
 
-def _authenticate() -> PaddleClient:
-    while True:
-        api_key = inquirer.secret(
-            message="Paddle API key:",
-            instruction="(input is hidden and never saved)",
-        ).execute()
-        environment: str | None = None
+def _authenticate(store: CredentialStore, *, force_prompt: bool = False) -> PaddleClient:
+    saved = None
+    if not force_prompt:
         try:
-            inspect_api_key(api_key)
-        except PaddleCliError as exc:
-            if "does not identify an environment" in str(exc):
-                environment = inquirer.select(
-                    message="API environment:",
-                    choices=["sandbox", "live"],
-                ).execute()
-            else:
+            saved = store.load()
+        except CredentialError as exc:
+            console.print(f"[yellow]{exc} Enter the key manually.[/yellow]")
+    while True:
+        using_saved = saved is not None
+        if saved is not None:
+            api_key = saved.api_key
+            environment: str | None = saved.environment
+            saved = None
+            console.print("[dim]Using the API key saved in system credentials.[/dim]")
+        else:
+            try:
+                api_key, environment = _prompt_api_key()
+            except PaddleCliError as exc:
                 console.print(f"[red]{exc}[/red]")
                 continue
         try:
@@ -136,6 +176,8 @@ def _authenticate() -> PaddleClient:
                 response = client.verify()
             if response.status_code in {401, 403}:
                 console.print("[red]Paddle rejected that API key.[/red]")
+                if using_saved:
+                    console.print("[dim]Enter a replacement key.[/dim]")
                 continue
             if not response.succeeded:
                 console.print(
@@ -145,6 +187,12 @@ def _authenticate() -> PaddleClient:
                 )
             color = "red" if client.key_info.environment == "live" else "green"
             console.print(f"Connected to [{color}]{client.key_info.environment}[/{color}].")
+            if not using_saved:
+                try:
+                    store.save(api_key, client.key_info.environment)
+                    console.print("[dim]Saved in your system credential manager.[/dim]")
+                except CredentialError as exc:
+                    console.print(f"[yellow]{exc} The key was not saved.[/yellow]")
             return client
         except PaddleCliError as exc:
             console.print(f"[red]{exc}[/red]")

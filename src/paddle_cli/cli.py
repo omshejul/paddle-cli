@@ -12,6 +12,7 @@ from rich.console import Console
 
 from paddle_cli import __version__
 from paddle_cli.client import PaddleClient, PaddleCliError
+from paddle_cli.credentials import CredentialError, CredentialStore
 from paddle_cli.spec import Operation, SpecError, SpecStore
 from paddle_cli.ui import (
     confirm_execution,
@@ -34,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("interactive", help="Open the interactive API navigator")
 
+    auth = subparsers.add_parser("auth", help="Manage the saved Paddle API key")
+    auth_subparsers = auth.add_subparsers(dest="auth_command", required=True)
+    auth_subparsers.add_parser("login", help="Validate and save a new API key")
+    auth_subparsers.add_parser("logout", help="Remove the saved API key")
+
     operations = subparsers.add_parser("operations", help="List operations in Paddle's API spec")
     operations.add_argument("--search", help="Filter by resource, operation, method, or path")
     operations.add_argument("--refresh", action="store_true", help="Download the latest API spec")
@@ -55,22 +61,27 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    store = SpecStore()
+    spec_store = SpecStore()
+    credential_store = CredentialStore()
     try:
         if args.command is None:
-            return run_key_check()
+            return run_key_check(credential_store)
         if args.command == "interactive":
-            return run_interactive(store)
+            return run_interactive(spec_store, credential_store)
+        if args.command == "auth" and args.auth_command == "login":
+            return run_key_check(credential_store, force_prompt=True)
+        if args.command == "auth" and args.auth_command == "logout":
+            return _logout(credential_store)
         if args.command == "operations":
-            return _list_operations(store, args.search, refresh=args.refresh)
+            return _list_operations(spec_store, args.search, refresh=args.refresh)
         if args.command == "request":
-            return _request(args)
+            return _request(args, credential_store)
         if args.command == "spec" and args.spec_command == "update":
-            path = store.update()
-            count = len(store.load().operations())
+            path = spec_store.update()
+            count = len(spec_store.load().operations())
             console.print(f"Updated {path} with {count} Paddle API operations.")
             return 0
-    except (PaddleCliError, SpecError, ValueError) as exc:
+    except (CredentialError, PaddleCliError, SpecError, ValueError) as exc:
         console.print(f"[red]Error:[/red] {exc}", file=sys.stderr)
         return 1
     return 0
@@ -93,15 +104,23 @@ def _list_operations(store: SpecStore, search: str | None, *, refresh: bool) -> 
     return 0
 
 
-def _request(args: argparse.Namespace) -> int:
+def _request(args: argparse.Namespace, credential_store: CredentialStore) -> int:
     api_key = os.environ.get("PADDLE_API_KEY")
+    environment = args.environment
     if not api_key:
-        if not sys.stdin.isatty():
-            raise PaddleCliError("Set PADDLE_API_KEY for a noninteractive request.")
-        api_key = getpass.getpass("Paddle API key: ")
+        saved = credential_store.load()
+        if saved is not None:
+            api_key = saved.api_key
+            environment = environment or saved.environment
+        else:
+            if not sys.stdin.isatty():
+                raise PaddleCliError(
+                    "Run 'paddle auth login' or set PADDLE_API_KEY for a noninteractive request."
+                )
+            api_key = getpass.getpass("Paddle API key: ")
     query = _json_object(args.query, "query")
     body = _body(args.body)
-    client = PaddleClient(api_key, environment=args.environment)
+    client = PaddleClient(api_key, environment=environment)
     operation = Operation(
         method=args.method,
         path=args.path,
@@ -118,6 +137,14 @@ def _request(args: argparse.Namespace) -> int:
     response = client.request(operation, query=query, body=body)
     render_response(response)
     return 0 if response.succeeded else 1
+
+
+def _logout(store: CredentialStore) -> int:
+    if store.delete():
+        console.print("Removed the saved Paddle API key from system credentials.")
+    else:
+        console.print("No Paddle API key is saved.")
+    return 0
 
 
 def _json_object(raw: str, name: str) -> dict[str, Any]:

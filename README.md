@@ -17,7 +17,7 @@ operations appear after a spec refresh, without waiting for a CLI release.
 - Pretty JSON responses and Paddle request IDs
 - Raw-request mode for endpoints not yet described by the specification
 - Noninteractive request mode for scripts
-- API keys remain in memory and are never cached or written by the CLI
+- Validated API keys stored in the operating system's secure credential manager
 
 Paddle CLI covers operations present in the official Paddle Billing OpenAPI
 specification. Dashboard-only workflows are outside the Paddle API and therefore
@@ -44,9 +44,12 @@ uv run paddle
 paddle
 ```
 
-The default command prompts once, verifies the key using Paddle's permissionless
-`GET /event-types` endpoint, displays safe metadata, and exits. It never displays
-or saves the secret. Modern keys select their own environment:
+On first use, the default command prompts once and verifies the key using
+Paddle's permissionless `GET /event-types` endpoint. After successful
+validation, it saves the key in macOS Keychain, Windows Credential Locker, or a
+supported Linux Secret Service. Later runs reuse the saved key without prompting.
+The CLI never displays the secret or writes it to a plain-text configuration
+file. Modern keys select their own environment:
 
 - `pdl_sdbx_...` uses `https://sandbox-api.paddle.com`
 - `pdl_live_...` uses `https://api.paddle.com`
@@ -56,6 +59,16 @@ Legacy keys do not encode an environment, so the CLI asks you to choose one.
 Paddle does not expose the current key's dashboard name, description,
 permissions, or expiration through the API. The validator labels those fields as
 dashboard-only instead of guessing.
+
+Replace or remove the saved key explicitly:
+
+```sh
+paddle auth login
+paddle auth logout
+```
+
+If the operating system has no supported credential backend, validation still
+works and the CLI reports that the key could not be saved.
 
 ## Interactive API navigator
 
@@ -70,7 +83,8 @@ public API specification, never credentials or responses.
 
 ## Scripted requests
 
-Set the key in the process environment or let the CLI prompt for it:
+The request command uses the saved key by default. `PADDLE_API_KEY` overrides it
+for one process:
 
 ```sh
 PADDLE_API_KEY='pdl_sdbx_...' paddle request GET /products
@@ -90,6 +104,8 @@ shell history, or chat messages.
 
 ```sh
 paddle interactive
+paddle auth login
+paddle auth logout
 paddle operations
 paddle operations --search subscription
 paddle spec update

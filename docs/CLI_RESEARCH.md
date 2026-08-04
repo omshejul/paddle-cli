@@ -24,7 +24,8 @@ rather than feature count.
 - The full API navigator remains available as `paddle interactive`.
 - A successful check exits with `0`, a rejected key exits with `1`, and user
   cancellation exits with `130`.
-- The API secret is masked at input, kept in memory, and never printed or saved.
+- The API secret is masked at input, never printed, and persisted only through
+  the operating system's secure credential manager after successful validation.
 - The check uses Paddle's permissionless `GET /event-types` endpoint and does not
   download the OpenAPI specification.
 - Output distinguishes verified facts from dashboard-only metadata.

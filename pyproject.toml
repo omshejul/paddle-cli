@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paddle-api-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "A secure API-key validator and interactive CLI for Paddle Billing"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
   "httpx>=0.28,<1",
   "inquirerpy>=0.3.4,<1",
+  "keyring>=25.7,<26",
   "pyyaml>=6.0,<7",
   "rich>=14,<15",
 ]
