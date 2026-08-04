@@ -32,7 +32,7 @@ dependencies = [
 paddle = "paddle_cli.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/omshejul/paddle-cli#readme"
+Documentation = "https://omshejul.github.io/paddle-cli/"
 Source = "https://github.com/omshejul/paddle-cli"
 "Paddle API reference" = "https://developer.paddle.com/api-reference/"
 

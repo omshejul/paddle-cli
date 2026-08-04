@@ -3,6 +3,10 @@
 A secure API-key validator and interactive terminal client for the complete
 Paddle Billing API.
 
+[Website](https://omshejul.github.io/paddle-cli/) ·
+[PyPI](https://pypi.org/project/paddle-api-cli/) ·
+[Homebrew](https://github.com/omshejul/homebrew-tap)
+
 Paddle CLI reads Paddle's official OpenAPI 3.1 specification at runtime. New API
 operations appear after a spec refresh, without waiting for a CLI release.
 
