@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from paddle_cli.ui import (
 )
 
 console = Console()
+error_console = Console(stderr=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,20 +51,42 @@ Run 'paddle help <command>' for command-specific help.""",
     parser.add_argument("--version", action="version", version=f"Paddle CLI {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
-    login = subparsers.add_parser("login", help="Validate and securely save an API key")
-    login.add_argument("--key", help="API key to save (prefer the masked interactive prompt)")
-    login.add_argument("--environment", choices=["sandbox", "live"])
+    login = subparsers.add_parser(
+        "login",
+        help="Validate and securely save an API key",
+        description="Validate a Paddle API key and save it in the system credential manager.",
+    )
+    key_input = login.add_mutually_exclusive_group()
+    key_input.add_argument(
+        "--key", help="API key to save (prefer the masked prompt or --key-stdin)"
+    )
+    key_input.add_argument(
+        "--key-stdin",
+        action="store_true",
+        help="Read the API key from standard input without placing it in process arguments",
+    )
+    login.add_argument(
+        "--environment",
+        choices=["sandbox", "live"],
+        help="Override environment detection, mainly for legacy keys",
+    )
 
     subparsers.add_parser("logout", help="Remove the saved API key")
 
     whoami = subparsers.add_parser("whoami", help="Show local authentication status")
-    whoami.add_argument("--environment", choices=["sandbox", "live"])
+    whoami.add_argument(
+        "--environment", choices=["sandbox", "live"], help="Override the selected environment"
+    )
 
     doctor = subparsers.add_parser("doctor", help="Validate API connectivity and credentials")
-    doctor.add_argument("--environment", choices=["sandbox", "live"])
+    doctor.add_argument(
+        "--environment", choices=["sandbox", "live"], help="Override the selected environment"
+    )
 
     interactive = subparsers.add_parser("interactive", help="Open the interactive API navigator")
-    interactive.add_argument("--environment", choices=["sandbox", "live"])
+    interactive.add_argument(
+        "--environment", choices=["sandbox", "live"], help="Override the selected environment"
+    )
 
     subparsers.add_parser("config", help="Show credential storage and cache locations")
 
@@ -78,7 +102,9 @@ Run 'paddle help <command>' for command-specific help.""",
     request.add_argument("path", help="API path, for example /products")
     request.add_argument("--query", default="{}", help="Query parameters as a JSON object")
     request.add_argument("--body", help="JSON body or @path/to/file.json")
-    request.add_argument("--environment", choices=["sandbox", "live"])
+    request.add_argument(
+        "--environment", choices=["sandbox", "live"], help="Override the selected environment"
+    )
     request.add_argument("--yes", action="store_true", help="Execute writes without prompting")
 
     spec = subparsers.add_parser("spec", help="Manage the cached Paddle API specification")
@@ -99,13 +125,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "help":
             return _show_help(parser, args.topic)
         if args.command == "login":
-            if args.key is None and not sys.stdin.isatty():
+            api_key = args.key
+            if args.key_stdin:
+                api_key = sys.stdin.read().strip()
+                if not api_key:
+                    raise PaddleCliError("No API key was provided on standard input.")
+            if api_key is None and not sys.stdin.isatty():
                 raise PaddleCliError(
-                    "Interactive input is unavailable. Pass the API key with --key."
+                    "Interactive input is unavailable. Pipe the key to 'paddle login --key-stdin'."
                 )
             return run_login(
                 credential_store,
-                api_key=args.key,
+                api_key=api_key,
                 environment=args.environment,
             )
         if args.command == "logout":
@@ -132,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
             console.print(f"Updated {path} with {count} Paddle API operations.")
             return 0
     except (CredentialError, PaddleCliError, SpecError, ValueError) as exc:
-        console.print(f"[red]Error:[/red] {exc}", file=sys.stderr)
+        error_console.print(f"[red]Error:[/red] {exc}")
         return 1
     return 0
 
@@ -184,19 +215,28 @@ def _logout(store: CredentialStore) -> int:
         console.print(f"Removed the saved Paddle API key from {store.backend_name()}.")
     else:
         console.print("No saved Paddle API key found. Already logged out.")
+    if os.environ.get("PADDLE_API_KEY"):
+        console.print(
+            "[yellow]PADDLE_API_KEY is still set for this process and overrides "
+            "saved login.[/yellow]"
+        )
     return 0
 
 
 def _show_config(store: CredentialStore) -> int:
     details = Table.grid(padding=(0, 2))
     details.add_column(style="bold")
-    details.add_column()
+    details.add_column(overflow="fold")
     details.add_row("Credential storage", store.backend_name())
     details.add_row("Keychain service", SERVICE_NAME)
     details.add_row("Keychain account", ACCOUNT_NAME)
-    details.add_row("Saved credential", "Yes" if store.load() is not None else "No")
-    details.add_row("OpenAPI cache", str(default_cache_path()))
+    try:
+        saved_status = "Yes" if store.load() is not None else "No"
+    except CredentialError:
+        saved_status = "Unavailable"
+    details.add_row("Saved credential", saved_status)
     console.print(Panel.fit(details, title="Paddle CLI configuration", border_style="cyan"))
+    console.print(f"OpenAPI cache  {default_cache_path()}", soft_wrap=True)
     return 0
 
 
@@ -210,7 +250,7 @@ def _show_help(parser: argparse.ArgumentParser, topic: str | None) -> int:
     )
     command_parser = subparsers.choices.get(topic) if subparsers else None
     if command_parser is None:
-        console.print(f"[red]Unknown command:[/red] {topic}", file=sys.stderr)
+        error_console.print(f"[red]Unknown command:[/red] {topic}")
         return 2
     command_parser.print_help()
     return 0

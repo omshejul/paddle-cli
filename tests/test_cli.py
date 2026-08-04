@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from io import StringIO
+
 import pytest
+from rich.console import Console
 
 from paddle_cli import cli
 from paddle_cli.client import KeyInfo, ResponseResult
@@ -40,6 +43,21 @@ def test_login_is_an_explicit_top_level_command(monkeypatch) -> None:
     assert seen == {"api_key": "pdl_sdbx_apikey_test", "environment": None}
 
 
+def test_login_can_read_key_from_standard_input(monkeypatch) -> None:
+    seen: dict[str, str | None] = {}
+
+    def login(_, *, api_key: str | None = None, environment: str | None = None) -> int:
+        seen["api_key"] = api_key
+        seen["environment"] = environment
+        return 0
+
+    monkeypatch.setattr(cli, "run_login", login)
+    monkeypatch.setattr(cli.sys, "stdin", StringIO("pdl_sdbx_apikey_stdin\n"))
+
+    assert cli.main(["login", "--key-stdin"]) == 0
+    assert seen == {"api_key": "pdl_sdbx_apikey_stdin", "environment": None}
+
+
 def test_old_nested_auth_command_is_not_exposed() -> None:
     with pytest.raises(SystemExit, match="2"):
         cli.build_parser().parse_args(["auth", "login"])
@@ -54,6 +72,40 @@ def test_logout_removes_saved_key() -> None:
             return "Test Keychain"
 
     assert cli._logout(Store()) == 0
+
+
+def test_logout_warns_when_environment_override_remains(monkeypatch) -> None:
+    output = StringIO()
+
+    class Store:
+        def delete(self) -> bool:
+            return False
+
+    monkeypatch.setenv("PADDLE_API_KEY", "pdl_sdbx_apikey_environment")
+    monkeypatch.setattr(cli, "console", Console(file=output, color_system=None))
+
+    assert cli._logout(Store()) == 0
+    assert "still set" in output.getvalue()
+
+
+def test_config_remains_available_without_secure_backend(monkeypatch) -> None:
+    output = StringIO()
+
+    class Store:
+        def backend_name(self) -> str:
+            return "keyring.backends.null"
+
+        def load(self) -> None:
+            from paddle_cli.credentials import CredentialError
+
+            raise CredentialError("unavailable")
+
+    monkeypatch.setattr(cli, "console", Console(file=output, color_system=None, width=60))
+
+    assert cli._show_config(Store()) == 0
+    rendered = output.getvalue()
+    assert "Unavailable" in rendered
+    assert str(cli.default_cache_path()) in rendered
 
 
 def test_direct_request_reuses_saved_key(monkeypatch) -> None:
@@ -79,3 +131,24 @@ def test_direct_request_reuses_saved_key(monkeypatch) -> None:
     args = cli.build_parser().parse_args(["request", "GET", "/products"])
 
     assert cli._request(args, Store()) == 0
+
+
+def test_unknown_help_topic_renders_without_traceback(monkeypatch) -> None:
+    errors = StringIO()
+    monkeypatch.setattr(cli, "error_console", Console(file=errors, color_system=None))
+
+    assert cli.main(["help", "not-a-command"]) == 2
+    assert errors.getvalue().strip() == "Unknown command: not-a-command"
+
+
+def test_cli_error_renders_without_traceback(monkeypatch) -> None:
+    errors = StringIO()
+    monkeypatch.setattr(cli, "error_console", Console(file=errors, color_system=None))
+    monkeypatch.setattr(
+        cli,
+        "_request",
+        lambda *_: (_ for _ in ()).throw(ValueError("query must be a JSON object.")),
+    )
+
+    assert cli.main(["request", "GET", "/products"]) == 1
+    assert errors.getvalue().strip() == "Error: query must be a JSON object."

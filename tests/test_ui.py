@@ -7,7 +7,7 @@ from rich.console import Console
 
 from paddle_cli import ui
 from paddle_cli.client import KeyInfo, ResponseResult
-from paddle_cli.credentials import ResolvedCredential, StoredCredential
+from paddle_cli.credentials import CredentialError, ResolvedCredential, StoredCredential
 from paddle_cli.ui import pagination_query, parse_typed_value, shorten
 
 
@@ -101,14 +101,15 @@ def test_whoami_reads_saved_key_without_network_or_prompt(monkeypatch) -> None:
     assert ui.run_whoami(store) == 0
     assert store.saved is None
     rendered = output.getvalue()
-    assert "Authenticated" in rendered
+    assert "Configured" in rendered
+    assert "paddle doctor" in rendered
     assert "system credential manager" in rendered
     assert "Test Keychain" in rendered
 
 
 def test_whoami_requires_explicit_login_when_no_key_exists(monkeypatch) -> None:
     output = StringIO()
-    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(ui, "error_console", Console(file=output, color_system=None))
 
     assert ui.run_whoami(MemoryStore()) == 1
     assert "paddle login" in output.getvalue()
@@ -154,7 +155,8 @@ def test_login_returns_failure_for_rejected_key(monkeypatch) -> None:
         def verify(self) -> ResponseResult:
             return ResponseResult(403, "Forbidden", {}, "req_456", 5)
 
-    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(ui, "console", Console(file=StringIO(), color_system=None))
+    monkeypatch.setattr(ui, "error_console", Console(file=output, color_system=None))
     monkeypatch.setattr(
         ui.inquirer,
         "secret",
@@ -165,6 +167,21 @@ def test_login_returns_failure_for_rejected_key(monkeypatch) -> None:
     assert ui.run_login(store) == 1
     assert store.saved is None
     assert "API key is not valid" in output.getvalue()
+
+
+def test_interactive_handles_credential_backend_errors(monkeypatch) -> None:
+    output = StringIO()
+    errors = StringIO()
+    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(ui, "error_console", Console(file=errors, color_system=None))
+    monkeypatch.setattr(
+        ui,
+        "_authenticate",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(CredentialError("unavailable")),
+    )
+
+    assert ui.run_interactive(object(), object()) == 1
+    assert "Error: unavailable" in errors.getvalue()
 
 
 def test_parse_typed_values() -> None:

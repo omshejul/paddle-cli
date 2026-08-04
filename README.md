@@ -24,15 +24,29 @@ Paddle CLI covers operations present in the official Paddle Billing OpenAPI
 specification. Dashboard-only workflows are outside the Paddle API and therefore
 outside this CLI.
 
-## Install from this repository
+## Install from the private repository
 
 Requires Python 3.11 or newer and [uv](https://docs.astral.sh/uv/).
+Private-repository collaborators should first configure GitHub authentication for
+Git, then install the CLI:
 
 ```sh
-uv tool install .
+gh auth setup-git
+uv tool install "git+https://github.com/omshejul/paddle-cli.git@main"
 ```
 
-During development:
+Running the same install command again does not reinstall an unchanged tool. To
+fetch current `main` and replace the existing installation:
+
+```sh
+uv tool install --force-reinstall \
+  "git+https://github.com/omshejul/paddle-cli.git@main"
+```
+
+For a reproducible installation, replace `main` with a full commit SHA. Remove
+the tool with `uv tool uninstall paddle-api-cli`.
+
+During local development:
 
 ```sh
 uv sync
@@ -82,6 +96,11 @@ paddle logout
 
 For noninteractive setup, `paddle login --key ...` is available, but the masked
 prompt is safer because command arguments may be retained in shell history.
+Automation can avoid process arguments by sending the key on standard input:
+
+```sh
+security find-generic-password -w -s your-paddle-key | paddle login --key-stdin
+```
 
 ## Authentication precedence
 
@@ -166,3 +185,16 @@ uv run pytest
 
 The test suite uses mocked HTTP transports and does not require or call a real
 Paddle account.
+
+Maintainers can route-check the current cached Paddle specification against a
+logged-in sandbox account. The harness forces sandbox, uses deliberately invalid
+IDs and bodies, suppresses response content, and stops immediately if a write
+unexpectedly succeeds:
+
+```sh
+uv run python scripts/e2e_sandbox.py
+uv run python scripts/e2e_sandbox.py --include-write-probes
+```
+
+This proves safe route, authentication, and CLI coverage. It does not prove the
+business behavior of successful create, update, or delete operations.

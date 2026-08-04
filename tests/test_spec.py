@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+import pytest
 
-from paddle_cli.spec import PaddleSpec, SpecStore
+from paddle_cli.spec import PaddleSpec, SpecError, SpecStore
 
 DOCUMENT = {
     "openapi": "3.1.0",
@@ -103,7 +104,7 @@ def test_store_downloads_valid_spec_atomically(tmp_path: Path) -> None:
     assert not cache.with_suffix(".tmp").exists()
 
 
-def test_store_uses_existing_cache_if_refresh_fails(tmp_path: Path) -> None:
+def test_explicit_refresh_reports_failure_instead_of_using_stale_cache(tmp_path: Path) -> None:
     import yaml
 
     cache = tmp_path / "openapi.yaml"
@@ -113,4 +114,7 @@ def test_store_uses_existing_cache_if_refresh_fails(tmp_path: Path) -> None:
         return httpx.Response(503)
 
     store = SpecStore(cache_path=cache, transport=httpx.MockTransport(handler))
-    assert len(store.load(refresh=True).operations()) == 2
+    with pytest.raises(SpecError, match="Could not download"):
+        store.load(refresh=True)
+
+    assert cache.exists()

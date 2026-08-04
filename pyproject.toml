@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paddle-api-cli"
-version = "0.3.0"
+dynamic = ["version"]
 description = "A secure, spec-driven CLI for Paddle Billing"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,8 +46,12 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/paddle_cli"]
 
+[tool.hatch.version]
+path = "src/paddle_cli/__init__.py"
+
 [tool.pytest.ini_options]
 addopts = "-q"
+pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]

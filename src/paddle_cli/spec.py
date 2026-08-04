@@ -97,7 +97,9 @@ class SpecStore:
         return self.cache_path
 
     def load(self, *, refresh: bool = False) -> PaddleSpec:
-        if refresh or not self.cache_path.exists():
+        if refresh:
+            self.update()
+        elif not self.cache_path.exists():
             try:
                 self.update()
             except SpecError:

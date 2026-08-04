@@ -19,6 +19,7 @@ from paddle_cli.credentials import CredentialError, CredentialStore
 from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecStore
 
 console = Console()
+error_console = Console(stderr=True)
 
 
 def run_login(
@@ -40,7 +41,7 @@ def run_login(
         with console.status("Validating with Paddle..."):
             response = client.verify()
         if not response.succeeded:
-            console.print(
+            error_console.print(
                 Panel.fit(
                     f"[bold red]API key is not valid[/bold red]\n"
                     f"Paddle returned {response.status_code} {response.reason}.",
@@ -63,7 +64,7 @@ def run_login(
         console.print("\n[dim]Login canceled.[/dim]")
         return 130
     except (CredentialError, PaddleCliError) as exc:
-        console.print(f"[red]Login failed:[/red] {exc}")
+        error_console.print(f"[red]Login failed:[/red] {exc}")
         return 1
 
 
@@ -71,7 +72,7 @@ def run_whoami(store: CredentialStore, *, environment: str | None = None) -> int
     try:
         resolved = store.resolve(environment)
         if resolved is None:
-            console.print(
+            error_console.print(
                 "[red]Not authenticated.[/red]\nRun [bold]paddle login[/bold] to get started."
             )
             return 1
@@ -79,17 +80,18 @@ def run_whoami(store: CredentialStore, *, environment: str | None = None) -> int
         details = Table.grid(padding=(0, 2))
         details.add_column(style="bold")
         details.add_column()
-        details.add_row("Status", "[bold green]Authenticated[/bold green]")
+        details.add_row("Status", "[bold green]Configured[/bold green]")
         details.add_row("Environment", client.key_info.environment.title())
         details.add_row("Key ID", client.key_info.entity_id or "Legacy key")
         details.add_row("Source", resolved.source)
         if resolved.source == "system credential manager":
             details.add_row("Storage", store.backend_name())
         details.add_row("API endpoint", client.base_url)
-        console.print(Panel.fit(details, title="Paddle authentication", border_style="green"))
+        console.print(Panel.fit(details, title="Paddle credential", border_style="green"))
+        console.print("Run [bold]paddle doctor[/bold] to validate this credential with Paddle.")
         return 0
     except (CredentialError, PaddleCliError) as exc:
-        console.print(f"[red]Authentication error:[/red] {exc}")
+        error_console.print(f"[red]Authentication error:[/red] {exc}")
         return 1
 
 
@@ -97,7 +99,7 @@ def run_doctor(store: CredentialStore, *, environment: str | None = None) -> int
     try:
         resolved = store.resolve(environment)
         if resolved is None:
-            console.print(
+            error_console.print(
                 "[red]Not authenticated.[/red]\nRun [bold]paddle login[/bold] to get started."
             )
             return 1
@@ -105,7 +107,7 @@ def run_doctor(store: CredentialStore, *, environment: str | None = None) -> int
         with console.status("Checking Paddle API connectivity..."):
             response = client.verify()
         if not response.succeeded:
-            console.print(
+            error_console.print(
                 Panel.fit(
                     f"[bold red]Paddle API check failed[/bold red]\n"
                     f"Paddle returned {response.status_code} {response.reason}.",
@@ -116,7 +118,7 @@ def run_doctor(store: CredentialStore, *, environment: str | None = None) -> int
         _render_key_details(client, response, source=resolved.source)
         return 0
     except (CredentialError, PaddleCliError) as exc:
-        console.print(f"[red]Paddle API check failed:[/red] {exc}")
+        error_console.print(f"[red]Paddle API check failed:[/red] {exc}")
         return 1
 
 
@@ -180,8 +182,8 @@ def run_interactive(
     except (KeyboardInterrupt, EOFError):
         console.print("\n[dim]Exited without changing credentials or local configuration.[/dim]")
         return 130
-    except (PaddleCliError, SpecError) as exc:
-        console.print(f"[red]Error:[/red] {exc}")
+    except (CredentialError, PaddleCliError, SpecError) as exc:
+        error_console.print(f"[red]Error:[/red] {exc}")
         return 1
 
 
