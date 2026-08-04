@@ -13,7 +13,13 @@ from rich.console import Console
 from paddle_cli import __version__
 from paddle_cli.client import PaddleClient, PaddleCliError
 from paddle_cli.spec import Operation, SpecError, SpecStore
-from paddle_cli.ui import confirm_execution, operations_table, render_response, run_interactive
+from paddle_cli.ui import (
+    confirm_execution,
+    operations_table,
+    render_response,
+    run_interactive,
+    run_key_check,
+)
 
 console = Console()
 
@@ -21,7 +27,7 @@ console = Console()
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paddle",
-        description="Explore and call the complete Paddle Billing API.",
+        description="Validate a Paddle API key or explore the Paddle Billing API.",
     )
     parser.add_argument("--version", action="version", version=f"Paddle CLI {__version__}")
     subparsers = parser.add_subparsers(dest="command")
@@ -51,7 +57,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     store = SpecStore()
     try:
-        if args.command in {None, "interactive"}:
+        if args.command is None:
+            return run_key_check()
+        if args.command == "interactive":
             return run_interactive(store)
         if args.command == "operations":
             return _list_operations(store, args.search, refresh=args.refresh)

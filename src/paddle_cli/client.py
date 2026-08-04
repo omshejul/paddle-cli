@@ -14,6 +14,10 @@ BASE_URLS = {
     "sandbox": "https://sandbox-api.paddle.com",
     "live": "https://api.paddle.com",
 }
+MODERN_API_KEY_PATTERN = re.compile(
+    r"^pdl_(?P<environment>live|sdbx)_apikey_"
+    r"(?P<identifier>[a-z\d]{26})_[A-Za-z\d]{22}_[A-Za-z\d]{3}$"
+)
 
 
 class PaddleCliError(RuntimeError):
@@ -24,6 +28,11 @@ class PaddleCliError(RuntimeError):
 class KeyInfo:
     environment: str
     modern: bool
+    identifier: str | None = None
+
+    @property
+    def entity_id(self) -> str | None:
+        return f"apikey_{self.identifier}" if self.identifier else None
 
 
 @dataclass(frozen=True)
@@ -48,6 +57,7 @@ def inspect_api_key(api_key: str, environment: str | None = None) -> KeyInfo:
         raise PaddleCliError(
             "This looks like a client-side token. Use a server-side Paddle API key."
         )
+    modern_match = MODERN_API_KEY_PATTERN.fullmatch(key)
     if key.startswith("pdl_sdbx_"):
         detected = "sandbox"
     elif key.startswith("pdl_live_"):
@@ -60,7 +70,11 @@ def inspect_api_key(api_key: str, environment: str | None = None) -> KeyInfo:
         )
     if detected not in BASE_URLS:
         raise PaddleCliError("This key does not identify an environment. Choose sandbox or live.")
-    return KeyInfo(environment=detected, modern=key.startswith("pdl_"))
+    return KeyInfo(
+        environment=detected,
+        modern=key.startswith("pdl_"),
+        identifier=modern_match.group("identifier") if modern_match else None,
+    )
 
 
 class PaddleClient:

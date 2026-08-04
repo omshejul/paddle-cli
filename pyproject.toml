@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "paddle-api-cli"
 version = "0.1.0"
-description = "A secure, spec-driven interactive CLI for the Paddle Billing API"
+description = "A secure API-key validator and interactive CLI for Paddle Billing"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -32,8 +32,9 @@ paddle = "paddle_cli.cli:main"
 paddle-cli = "paddle_cli.cli:main"
 
 [project.urls]
-Documentation = "https://developer.paddle.com/api-reference/"
-Source = "https://github.com/PaddleHQ/paddle-openapi"
+Documentation = "https://github.com/omshejul/paddle-cli#readme"
+Source = "https://github.com/omshejul/paddle-cli"
+"Paddle API reference" = "https://developer.paddle.com/api-reference/"
 
 [dependency-groups]
 dev = [

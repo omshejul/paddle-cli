@@ -1,8 +1,77 @@
 from __future__ import annotations
 
-import pytest
+from io import StringIO
 
+import pytest
+from rich.console import Console
+
+from paddle_cli import ui
+from paddle_cli.client import KeyInfo, ResponseResult
 from paddle_cli.ui import pagination_query, parse_typed_value, shorten
+
+
+class Prompt:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def execute(self) -> str:
+        return self.value
+
+
+def test_key_check_validates_once_and_exits(monkeypatch) -> None:
+    output = StringIO()
+    calls = {"verify": 0}
+    api_key = "pdl_live_apikey_01gtgztp8f4kek3yd4g1wrksa3_q6TGTJyvoIz7LDtXT65bX7_AQO"
+
+    class FakeClient:
+        key_info = KeyInfo("live", True, "01gtgztp8f4kek3yd4g1wrksa3")
+        base_url = "https://api.paddle.com"
+
+        def __init__(self, received_key: str, *, environment: str | None = None) -> None:
+            assert received_key == api_key
+            assert environment is None
+
+        def verify(self) -> ResponseResult:
+            calls["verify"] += 1
+            return ResponseResult(200, "OK", {}, "req_123", 5)
+
+    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(ui.inquirer, "secret", lambda **_: Prompt(api_key))
+    monkeypatch.setattr(ui, "PaddleClient", FakeClient)
+
+    assert ui.run_key_check() == 0
+    assert calls["verify"] == 1
+    rendered = output.getvalue()
+    assert "API key is valid" in rendered
+    assert "Live" in rendered
+    assert "apikey_01gtgztp8f4kek3yd4g1wrksa3" in rendered
+    assert api_key not in rendered
+
+
+def test_key_check_returns_failure_for_rejected_key(monkeypatch) -> None:
+    output = StringIO()
+
+    class FakeClient:
+        key_info = KeyInfo("sandbox", True)
+        base_url = "https://sandbox-api.paddle.com"
+
+        def __init__(self, received_key: str, *, environment: str | None = None) -> None:
+            assert received_key == "pdl_sdbx_apikey_invalid"
+            assert environment is None
+
+        def verify(self) -> ResponseResult:
+            return ResponseResult(403, "Forbidden", {}, "req_456", 5)
+
+    monkeypatch.setattr(ui, "console", Console(file=output, color_system=None))
+    monkeypatch.setattr(
+        ui.inquirer,
+        "secret",
+        lambda **_: Prompt("pdl_sdbx_apikey_invalid"),
+    )
+    monkeypatch.setattr(ui, "PaddleClient", FakeClient)
+
+    assert ui.run_key_check() == 1
+    assert "API key is not valid" in output.getvalue()
 
 
 def test_parse_typed_values() -> None:

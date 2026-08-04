@@ -1,13 +1,14 @@
 # Paddle CLI
 
-A secure, interactive terminal client for the complete Paddle Billing API.
+A secure API-key validator and interactive terminal client for the complete
+Paddle Billing API.
 
 Paddle CLI reads Paddle's official OpenAPI 3.1 specification at runtime. New API
 operations appear after a spec refresh, without waiting for a CLI release.
 
 ## Features
 
-- Masked API-key prompt on interactive startup
+- One-shot API-key validation with a masked prompt
 - Automatic sandbox/live detection from modern Paddle API keys
 - Operations grouped by Paddle resource, with fuzzy search
 - Path, query, header, and JSON request-body input
@@ -37,19 +38,30 @@ uv sync
 uv run paddle
 ```
 
-## Interactive usage
+## Validate an API key
 
 ```sh
 paddle
 ```
 
-The CLI prompts for the key using a masked input. Modern keys select their own
-environment:
+The default command prompts once, verifies the key using Paddle's permissionless
+`GET /event-types` endpoint, displays safe metadata, and exits. It never displays
+or saves the secret. Modern keys select their own environment:
 
 - `pdl_sdbx_...` uses `https://sandbox-api.paddle.com`
 - `pdl_live_...` uses `https://api.paddle.com`
 
 Legacy keys do not encode an environment, so the CLI asks you to choose one.
+
+Paddle does not expose the current key's dashboard name, description,
+permissions, or expiration through the API. The validator labels those fields as
+dashboard-only instead of guessing.
+
+## Interactive API navigator
+
+```sh
+paddle interactive
+```
 
 The API reference is downloaded from
 [`PaddleHQ/paddle-openapi`](https://github.com/PaddleHQ/paddle-openapi) and cached
@@ -77,6 +89,7 @@ shell history, or chat messages.
 ## Other commands
 
 ```sh
+paddle interactive
 paddle operations
 paddle operations --search subscription
 paddle spec update

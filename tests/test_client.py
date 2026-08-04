@@ -25,6 +25,13 @@ def test_detects_sandbox_and_live_keys() -> None:
     assert inspect_api_key("pdl_live_apikey_example").environment == "live"
 
 
+def test_extracts_safe_entity_id_from_modern_key() -> None:
+    info = inspect_api_key("pdl_live_apikey_01gtgztp8f4kek3yd4g1wrksa3_q6TGTJyvoIz7LDtXT65bX7_AQO")
+
+    assert info.entity_id == "apikey_01gtgztp8f4kek3yd4g1wrksa3"
+    assert info.modern is True
+
+
 def test_rejects_client_side_token() -> None:
     with pytest.raises(PaddleCliError, match="client-side token"):
         inspect_api_key("live_abc123")

@@ -20,6 +20,65 @@ from paddle_cli.spec import Operation, PaddleSpec, Parameter, SpecError, SpecSto
 console = Console()
 
 
+def run_key_check() -> int:
+    console.print(
+        Panel.fit(
+            "[bold]Paddle CLI[/bold]\nValidate a Paddle API key.",
+            border_style="cyan",
+        )
+    )
+    try:
+        api_key = inquirer.secret(
+            message="Paddle API key:",
+            instruction="(input is hidden and never saved)",
+        ).execute()
+        environment: str | None = None
+        try:
+            inspect_api_key(api_key)
+        except PaddleCliError as exc:
+            if "does not identify an environment" not in str(exc):
+                raise
+            environment = inquirer.select(
+                message="API environment:",
+                choices=["sandbox", "live"],
+            ).execute()
+
+        client = PaddleClient(api_key, environment=environment)
+        with console.status("Validating with Paddle..."):
+            response = client.verify()
+        if not response.succeeded:
+            console.print(
+                Panel.fit(
+                    f"[bold red]API key is not valid[/bold red]\n"
+                    f"Paddle returned {response.status_code} {response.reason}.",
+                    border_style="red",
+                )
+            )
+            return 1
+
+        details = Table.grid(padding=(0, 2))
+        details.add_column(style="bold")
+        details.add_column()
+        details.add_row("Status", "[bold green]Valid[/bold green]")
+        details.add_row("Environment", client.key_info.environment.title())
+        details.add_row("Name", "Available in Paddle dashboard")
+        details.add_row("Key ID", client.key_info.entity_id or "Legacy key")
+        details.add_row("Format", "Modern" if client.key_info.modern else "Legacy")
+        details.add_row("Permissions", "Available in Paddle dashboard")
+        details.add_row("Expires", "Available in Paddle dashboard")
+        details.add_row("API endpoint", client.base_url)
+        if response.request_id:
+            details.add_row("Request ID", response.request_id)
+        console.print(Panel.fit(details, title="API key is valid", border_style="green"))
+        return 0
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[dim]Canceled.[/dim]")
+        return 130
+    except PaddleCliError as exc:
+        console.print(f"[red]API key is not valid:[/red] {exc}")
+        return 1
+
+
 def run_interactive(store: SpecStore) -> int:
     console.print(
         Panel.fit(
