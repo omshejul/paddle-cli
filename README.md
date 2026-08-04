@@ -25,20 +25,36 @@ operations appear after a spec refresh, without waiting for a CLI release.
   endpoint immediately, while specification refresh makes it browsable without a
   package release.
 
-### Why use the CLI instead of an MCP server?
+### Paddle CLI compared with MCP
 
-- **No MCP server setup or model required.** It works directly from any terminal,
-  editor, CI system, or agent that can run shell commands.
-- **Predictable execution.** The CLI runs exactly the command you provide instead
-  of asking a model to choose a tool and construct the request for you.
-- **Smaller credential boundary.** Your Paddle key remains in your operating
-  system's credential manager instead of being copied into MCP server
-  configuration.
-- **Better for repeatable automation.** Commands can be reviewed, versioned, and
-  reused in scripts with stable arguments and meaningful exit codes.
-- **MCP remains useful for conversational workflows.** Use MCP when you want an AI
-  assistant to discover and combine Paddle actions. Use the CLI when you want
-  direct control, portability, and reproducibility.
+| Capability | Paddle CLI | Paddle MCP server |
+| --- | --- | --- |
+| Run directly from a terminal | Yes, with one `paddle` command | No, requires an MCP client |
+| Use without an AI model | Yes | Possible with development tools, but not the normal workflow |
+| Use in shell scripts and CI | Native commands, exit codes, and standard input | Requires an MCP client or adapter |
+| Repeat and review an action | Save the exact command in code or shell history | Depends on the MCP client retaining the tool call |
+| Keep the API key in the operating system credential manager | Built in | Depends on how the MCP server stores credentials |
+| Preview requests and protect live writes | Built-in request preview, write confirmation, and `LIVE` gate | Depends on the MCP server implementation |
+| Call an endpoint not yet modeled by the tool | Yes, using a raw request | Only if the server exposes a generic request tool |
+| Pick and combine actions from natural language | No built-in model | Native use case for MCP and AI clients |
+| Provide structured tools to an AI agent | Possible through shell access | Native MCP capability |
+| Browse Paddle operations interactively | Built-in terminal navigator and fuzzy search | Usually handled through the AI client |
+
+#### What both can do
+
+| Shared capability | Notes |
+| --- | --- |
+| Call Paddle sandbox and live APIs | Both ultimately send requests to Paddle's API endpoints. |
+| Read and change Paddle resources | Available operations depend on the API key's permissions. |
+| Work with products, prices, customers, subscriptions, and transactions | Both can cover resources exposed by the Paddle API. |
+| Use Paddle API keys | Paddle authenticates and authorizes every request. |
+| Return Paddle responses and request IDs | The presentation differs, but the underlying response comes from Paddle. |
+| Be used by an AI agent | An agent can run CLI commands or invoke MCP tools. |
+| Access only API-supported workflows | Neither can perform dashboard-only actions unless separate browser automation is added. |
+
+Use the CLI for direct control, local credentials, scripts, and reproducible
+operations. Use MCP when natural-language discovery and multi-tool AI workflows
+matter more than terminal-native execution.
 
 Paddle CLI covers operations present in the official Paddle Billing OpenAPI
 specification. Dashboard-only workflows are outside the Paddle API and therefore
