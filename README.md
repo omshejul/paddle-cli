@@ -21,9 +21,6 @@ and works anywhere an agent has a shell. It reads Paddle's official OpenAPI
 specification, supports raw paths for new endpoints, stores credentials in the
 system credential manager, and gates live writes.
 
-_Measured on August 5, 2026 with fresh Codex sessions, the same sandbox account,
-and three successful read-only runs per path. Timing varies by model and network._
-
 ## Install
 
 Paddle CLI is installed with [uv](https://docs.astral.sh/uv/):
